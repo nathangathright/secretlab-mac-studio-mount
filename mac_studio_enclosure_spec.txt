@@ -1,0 +1,262 @@
+MAC STUDIO UNDER-DESK ENCLOSURE — DESIGN SPECIFICATION
+========================================================
+
+OVERVIEW
+--------
+A hollow, open-back enclosure sized to hold a Mac Studio on its side.
+The Mac Studio slides in from the back. The enclosure mounts under a
+desk via screw slots on two opposing faces.
+
+All measurements below are derived from the Mac Studio's own body.
+Start by measuring your specific model, then follow the formulas.
+
+
+REFERENCE MEASUREMENTS TO TAKE FROM YOUR MAC STUDIO
+----------------------------------------------------
+Measure the following from your Mac Studio with calipers:
+
+  A.  Body width (square footprint, flat edge to flat edge)
+  B.  Body height (top face to bottom face)
+  C.  Body corner radius (the rounded vertical edges)
+  D.  Front panel port area width
+  E.  Front panel port area height
+  F.  Front panel port area corner radius (if rounded)
+  G.  Bottom base circle diameter (the raised or recessed ring
+      on the underside — this is the ventilation intake zone)
+  H.  Bottom base circle protrusion depth (how far the base
+      extends below the main body, if at all)
+
+
+MAIN BODY
+---------
+The enclosure is a cuboid shell that wraps the Mac Studio with
+clearance on all sides.
+
+  Enclosure width  =  A + 11 mm  (roughly 5.5 mm clearance per side)
+  Enclosure depth  =  A + 11 mm  (same, since the footprint is square)
+  Enclosure height =  B + 5 mm   (roughly 2.5 mm clearance top and bottom)
+
+The clearance serves two purposes: it accounts for manufacturing
+tolerance in the print, and it leaves a small air gap around the
+Mac Studio for passive airflow.
+
+All four long edges of the cuboid are rounded. The enclosure corner
+radius should match the Mac Studio's own corner profile plus the
+same clearance:
+
+  Enclosure corner radius  =  C + 5.5 mm
+
+This keeps the air gap uniform around the entire perimeter rather
+than pinching at the corners.
+
+The enclosure is hollow with a uniform wall thickness of 4 mm. This
+is not derived from the Mac Studio — it is a structural choice. At
+4 mm, most FDM slicers will fill the wall solidly with 3-4
+perimeters, producing a rigid shell without relying on infill.
+
+The inner corner radius follows from the outer:
+
+  Inner corner radius  =  Enclosure corner radius - 4 mm
+
+
+FACE DEFINITIONS
+----------------
+Orient the model so the front face (where the Mac Studio's front
+ports are) faces you:
+
+  Front:   Width x Height  (display/port cutout)
+  Back:    Width x Height  (entirely open)
+  Left:    Depth x Height  (screw slots)
+  Right:   Depth x Height  (screw slots)
+  Top:     Width x Depth   (square cutout)
+  Bottom:  Width x Depth   (circular cutout and channel)
+
+
+BACK — OPEN
+------------
+The entire back face is removed. The Mac Studio slides in from this
+side, and all rear ports and the power cable remain accessible.
+
+
+FRONT — PORT/DISPLAY CUTOUT
+----------------------------
+A rectangular cutout on the front face, centered both horizontally
+and vertically, passing fully through the 4 mm wall.
+
+The cutout should be sized to expose the Mac Studio's front panel.
+There are a few ways to determine the dimensions depending on what
+you are accommodating:
+
+  Option 1 — Front port cluster only:
+    Measure the bounding box around all front-facing ports (USB-C,
+    SDXC slot, 3.5 mm jack, depending on model). Add 3-5 mm of
+    margin on each side. Use this if you only need cable access and
+    don't plan to mount anything over the front face.
+
+  Option 2 — Aftermarket display or panel:
+    If you are mounting a small display, button panel, or similar
+    accessory in the front cutout, size the cutout to match the
+    visible area of that component. A typical 6-7" embedded display
+    has a visible area in the range of 149 x 92 mm. Measure your
+    specific panel.
+
+  Option 3 — Maximum front access:
+    Make the cutout as large as structurally reasonable. Leave at
+    least 15 mm of material between the cutout edge and the
+    enclosure edge on all sides to keep the front face rigid.
+
+  Cutout width   =  D + margin (see options above)
+  Cutout height  =  E + margin
+
+All four corners of this cutout are rounded:
+
+  Cutout corner radius  =  F, or if the feature you are exposing
+    has sharp corners, use half the wall thickness (2 mm) as a
+    minimum for printability. 12-13 mm produces a soft, Mac-like
+    aesthetic that visually echoes the enclosure's own corners.
+
+
+TOP — SQUARE CUTOUT
+--------------------
+A square cutout centered on the top face, passing fully through the
+4 mm wall. This saves material and can aid ventilation.
+
+The size is constrained by the enclosure's rounded corners. Because
+the corners curve inward, the tightest point between the cutout and
+the enclosure edge is along the diagonal, not the flat sides.
+
+To find the maximum safe size, measure from the center of the top
+face to the nearest point of the inner corner profile along the
+45-degree diagonal. Call this distance R_diag. Then:
+
+  Maximum square side  =  (R_diag - minimum_margin) x 2 / 1.414
+                           + 2 x cutout_corner_radius x (1 - 1/1.414)
+
+In practice, for a hanging under-desk mount subject to vibration:
+
+  Conservative (25 mm diagonal margin):  ~120 mm
+  Recommended  (20 mm diagonal margin):  ~130 mm
+  Aggressive   (15 mm diagonal margin):  ~140 mm
+
+The recommended size leaves roughly 20 mm of material at the
+tightest diagonal point — enough to handle the sustained load
+of the Mac Studio's weight and vibration from desk height
+adjustments.
+
+  Cutout corner radius  =  Same as the front cutout corner radius,
+    for visual consistency. 12-13 mm works well.
+
+
+BOTTOM — CIRCULAR CUTOUT AND CHANNEL
+-------------------------------------
+A circular cutout centered on the bottom face, passing fully through
+the 4 mm wall. This aligns with and exposes the Mac Studio's bottom
+ventilation intake.
+
+  Circle diameter  =  G  (the diameter of the base ring/vent circle
+    on the Mac Studio's underside)
+
+If your Mac Studio's base protrudes below the main body (measurement
+H), the enclosure also needs a channel so the base can slide in from
+the back. This channel runs from the widest point of the circle
+straight to the back edge of the bottom face:
+
+  Channel width  =  G  (same as the circle diameter)
+  Channel length =  from the center of the circle to the back edge,
+                    i.e. half the enclosure depth
+
+The resulting shape on the bottom face is a circle with a rectangular
+tongue extending from its equator to the rear edge. If your Mac
+Studio model has a flush base with no protrusion, you may omit the
+channel, but keeping it does no structural harm and ensures
+compatibility with other Mac Studio models.
+
+
+LEFT AND RIGHT SIDES — SCREW SLOTS
+-----------------------------------
+Each side face has four slotted holes for mounting hardware. The
+pattern is identical on both sides.
+
+These are not derived from the Mac Studio. They are a mounting
+design based on standard hardware:
+
+Slot dimensions:
+  Each slot is a stadium (oblong) shape, 10 mm long and 5 mm wide.
+  The 5 mm width provides clearance for M5 bolts. The 10 mm length
+  provides adjustment travel for alignment during installation.
+
+  If you plan to use a different bolt size, set the slot width to
+  your bolt shaft diameter + 0.5 mm clearance, and scale the slot
+  length proportionally.
+
+Slot arrangement:
+  The four slots form a rectangle on each side face:
+
+    Rectangle width   =  50 mm  (along the depth axis)
+    Rectangle height  =  30 mm  (along the height axis)
+
+  The rectangle is centered along the depth of the face. The top
+  edge is 14 mm from the top of the enclosure. This places the
+  rectangle's center at:
+
+    29 mm from the top edge
+    Centered left-to-right on the face
+
+  The 14 mm top offset keeps the upper slots close to the desk
+  surface for a tight, stable mount. The 30 x 50 mm spread gives
+  a wide enough base to resist rotation.
+
+  Slot center positions (measured from the top-front corner of the
+  side face):
+
+    Top-front:      79 mm from front,  14 mm from top
+    Top-back:      129 mm from front,  14 mm from top
+    Bottom-front:   79 mm from front,  44 mm from top
+    Bottom-back:   129 mm from front,  44 mm from top
+
+Slot orientation:
+  Each slot's long axis is angled to point toward the center of the
+  50 x 30 mm rectangle. This means the four slots converge radially,
+  so that tightening the bolts tends to pull the enclosure toward a
+  centered position on the mounting bracket.
+
+  The angle for each slot, measured as rotation from vertical:
+
+    Top-front:     ≈ 59° clockwise from vertical
+    Top-back:      ≈ 59° counter-clockwise from vertical
+    Bottom-front:  ≈ 59° counter-clockwise from vertical
+    Bottom-back:   ≈ 59° clockwise from vertical
+
+  These angles come from the aspect ratio of the rectangle:
+  atan2(25, 15) ≈ 59.0°, since each slot is 25 mm horizontally
+  and 15 mm vertically from the center.
+
+
+MOUNTING ORIENTATION
+--------------------
+In use, the enclosure hangs under a desk. One screw-slot face is
+fastened against the underside of the desk (or a mounting bracket
+attached to the desk). The opposite screw-slot face faces the floor.
+
+The Mac Studio sits on its side inside the enclosure. The open back
+faces outward for cable access. The front port/display cutout faces
+inward (toward the user's seated position) or outward, depending on
+preference.
+
+
+SUMMARY OF WHAT COMES FROM THE MAC STUDIO
+------------------------------------------
+  Enclosure width/depth    →  Mac Studio footprint + 11 mm
+  Enclosure height         →  Mac Studio height + 5 mm
+  Enclosure corner radius  →  Mac Studio corner radius + 5.5 mm
+  Front cutout size        →  Mac Studio front port area (+ margin),
+                              or sized to a specific display panel
+  Front cutout radius      →  Mac Studio front panel radius, or
+                              chosen for aesthetics (12-13 mm)
+  Bottom circle diameter   →  Mac Studio base/vent ring diameter
+  Bottom channel           →  Exists if Mac Studio base protrudes
+
+  Wall thickness (4 mm)    →  Structural choice, not from Mac Studio
+  Top cutout (130 mm)      →  Structural choice, constrained by
+                              enclosure corner geometry
+  Screw slot pattern       →  Mounting choice, based on M5 hardware
