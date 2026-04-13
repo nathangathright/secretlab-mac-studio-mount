@@ -2,3 +2,5 @@
 *.usdz
 *.pdf
 turnaround_output/
+__pycache__/
+*.py[cod]
