@@ -66,7 +66,7 @@ Print upside-down with the top face (square cutout) on the build plate and the b
 
 1. **Remove brim** with a deburring tool or flush cutters.
 2. **Light sanding** of the front face (the bed-contact surface) with 220-grit sandpaper to smooth any elephant's foot or brim remnants.
-3. **Test-fit the Mac Studio** before mounting. It should slide in from the back with slight clearance on all sides. If too tight, lightly sand the interior walls.
+3. **Test-fit the Mac Studio** before mounting. It should slide in from the back with slight clearance on all sides. The rear bottom tips are softened on the outer baseplate profile for handling comfort, but the vent circle and rear channel opening are unchanged from the original fit geometry. If the fit is too tight, lightly sand the interior walls.
 4. **Check screw slot alignment** by holding the enclosure against your mounting bracket and passing M5 bolts through the slots. The 10 mm slot length provides adjustment travel.
 
 
