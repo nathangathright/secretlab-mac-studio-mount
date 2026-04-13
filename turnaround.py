@@ -4,6 +4,7 @@ Generate a 360-degree turnaround video of the Mac Studio enclosure.
 Usage:
   /Applications/Blender.app/Contents/MacOS/Blender --background --python turnaround.py
   /Applications/Blender.app/Contents/MacOS/Blender --background --python turnaround.py -- --preview
+  /Applications/Blender.app/Contents/MacOS/Blender --background --python turnaround.py -- --preview --frame
 """
 
 import argparse
@@ -41,6 +42,7 @@ RENDER_PRESETS = {
 # Camera orbit settings
 CAMERA_ELEVATION_DEG = 25  # Angle above the horizon
 CAMERA_DISTANCE_FACTOR = 6.0  # Multiplier on model bounding radius
+DEFAULT_STILL_FRAME = 72
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -82,9 +84,20 @@ def parse_args():
         action="store_true",
         help="Render the full-quality mp4 (default).",
     )
+    parser.add_argument(
+        "--frame",
+        nargs="?",
+        const=DEFAULT_STILL_FRAME,
+        type=int,
+        help=(
+            "Render a single still frame from the turnaround orbit. "
+            f"If no frame is supplied, defaults to {DEFAULT_STILL_FRAME}."
+        ),
+    )
 
     args = parser.parse_args(script_argv)
-    return "preview" if args.preview else "final"
+    args.render_mode = "preview" if args.preview else "final"
+    return args
 
 
 def import_model(filepath):
@@ -230,7 +243,7 @@ def setup_camera(target_obj, bounding_radius, total_frames):
 
 
 def setup_render(settings):
-    """Configure render settings for Cycles with MP4 output."""
+    """Configure render settings and return the timeline frame count."""
     scene = bpy.context.scene
     total_frames = settings["fps"] * settings["duration_seconds"]
     scene.frame_start = 1
@@ -257,6 +270,14 @@ def setup_render(settings):
 
     scene.render.film_transparent = False
     return total_frames
+
+
+def still_output_path(render_mode, frame_number):
+    """Return the output path for a single rendered frame."""
+    return os.path.join(
+        OUTPUT_DIR,
+        f"turnaround_{render_mode}_frame_{frame_number:04d}.png",
+    )
 
 
 def add_ground_plane():
@@ -300,7 +321,8 @@ def add_ground_plane():
 # ---------------------------------------------------------------------------
 
 def main():
-    render_mode = parse_args()
+    args = parse_args()
+    render_mode = args.render_mode
     render_settings = RENDER_PRESETS[render_mode]
 
     if not os.path.isfile(MODEL_PATH):
@@ -339,6 +361,29 @@ def main():
     add_ground_plane()
     total_frames = setup_render(render_settings)
 
+    if args.frame is not None:
+        frame_number = args.frame
+        if frame_number < 1 or frame_number > total_frames:
+            print(
+                f"ERROR: Frame {frame_number} is outside the valid range "
+                f"1-{total_frames} for the {render_mode} preset."
+            )
+            sys.exit(1)
+
+        scene = bpy.context.scene
+        scene.frame_set(frame_number)
+        still_path = still_output_path(render_mode, frame_number)
+        scene.render.filepath = still_path
+
+        print(
+            f"Rendering still frame {frame_number}/{total_frames} at "
+            f"{render_settings['resolution_x']}x{render_settings['resolution_y']} "
+            f"with {render_settings['samples']} samples ..."
+        )
+        bpy.ops.render.render(write_still=True)
+        print(f"Done! Output saved to: {still_path}")
+        return
+
     # Render frames
     print(
         "Rendering "
@@ -355,6 +400,7 @@ def main():
     cmd = [
         "ffmpeg", "-y",
         "-framerate", str(render_settings["fps"]),
+        "-start_number", "1",
         "-i", frame_pattern,
         "-c:v", "libx264",
         "-crf", "18",

@@ -30,6 +30,12 @@ Open `mac_studio_enclosure.scad` in [OpenSCAD](https://openscad.org/) and edit t
 
 To regenerate the STL: **Design → Render (F6)** then **File → Export → STL**.
 
+### Rear Tip Relief
+
+The rear tips of the bottom opening are intentionally softened in the outer baseplate profile. This change rounds the tips that your hands can contact when loading the Mac Studio, but it does **not** change the vent circle or the straight rear channel cutout.
+
+That distinction matters: the slide-in path from the back is preserved because the final bottom cutout profile is still the original circle-plus-channel geometry. The rear-tip relief changes only the exterior silhouette around that opening.
+
 ## Mounting
 
 The enclosure has four converging screw slots on each side face, sized for M5 bolts with 10 mm of adjustment travel. In use, the Mac Studio sits on its side inside the enclosure. Fasten one side to the underside of your desk (or a mounting bracket). The open back faces outward for cable access.
@@ -48,7 +54,14 @@ For a faster draft render while iterating:
 /Applications/Blender.app/Contents/MacOS/Blender --background --python turnaround.py -- --preview
 ```
 
+To render a single still from the same camera orbit, use `--frame`. If you omit the frame number, it defaults to frame 72.
+
+```
+/Applications/Blender.app/Contents/MacOS/Blender --background --python turnaround.py -- --preview --frame 73
+```
+
 Final output is saved to `turnaround_output/turnaround.mp4`. Preview output is saved to `turnaround_output/turnaround_preview.mp4`.
+Single-frame preview output is saved to `turnaround_output/turnaround_preview_frame_####.png`.
 
 ## License
 

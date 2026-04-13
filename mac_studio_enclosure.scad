@@ -35,6 +35,10 @@ front_cutout_cr = 12.5;  // cutout corner radius (mm)
 top_cutout_side = 130;   // square side length (mm)
 top_cutout_cr   = 12.5;  // corner radius (mm)
 
+// ── Rear Tip Outer Profile ───────────────────────────────────────────
+rear_tip_outer_r = 4;    // target rear tip round-over radius (mm)
+rear_tip_leg_angle = 126.56;  // interior angle of each trapezoid leg (deg)
+
 // ── Screw Slot Parameters ────────────────────────────────────────────
 slot_w = 5;              // slot width — M5 bolt clearance (mm)
 slot_l = 10;             // slot length — adjustment travel (mm)
@@ -54,6 +58,33 @@ slot_angle = atan2(slot_rect_w / 2, slot_rect_h / 2);  // ~59.0 degrees
 
 // ── Resolution ───────────────────────────────────────────────────────
 $fn = 80;
+
+// Rear tip outer profile geometry:
+// 1. Start from the original outer baseplate footprint.
+// 2. Remove a full-width rear strip down to the centers of the add-back circles.
+// 3. Add two r=4 circles back at those centers.
+// 4. Subtract the exact original vent circle + channel afterward.
+//
+// This keeps the final bottom cutout identical to the original model while
+// changing only the outer silhouette of the rear baseplate tips.
+rear_channel_half_w = base_circle_d / 2;
+outer_rear_corner_x = enc_w / 2 - enc_cr;
+outer_rear_corner_z = enc_d - enc_cr;
+rear_tip_circle_center_x = rear_channel_half_w + rear_tip_outer_r;
+rear_tip_circle_center_radicand =
+    pow(enc_cr - rear_tip_outer_r, 2) -
+    pow(rear_tip_circle_center_x - outer_rear_corner_x, 2);
+assert(
+    rear_tip_circle_center_radicand > 0,
+    "rear_tip_outer_r is too large for the current rear corner geometry"
+);
+rear_tip_circle_center_z =
+    outer_rear_corner_z + sqrt(rear_tip_circle_center_radicand);
+rear_tip_strip_h = enc_d - rear_tip_circle_center_z;
+rear_tip_trapezoid_half_delta =
+    rear_tip_strip_h / tan(180 - rear_tip_leg_angle);
+rear_tip_trapezoid_long_half_w =
+    rear_tip_circle_center_x + rear_tip_trapezoid_half_delta;
 
 // ═══════════════════════════════════════════════════════════════════════
 // Helper Modules
@@ -127,18 +158,49 @@ module top_cutout() {
                 rounded_rect(top_cutout_side, top_cutout_side, top_cutout_cr);
 }
 
+// Exact 2D bottom cutout profile used for both visualization and subtraction.
+module bottom_cutout_profile() {
+    union() {
+        circle(d = base_circle_d);
+        translate([0, enc_d / 4])
+            square([base_circle_d, enc_d / 2], center = true);
+    }
+}
+
 // Bottom face cutout — circle + channel to back edge
 module bottom_cutout() {
     translate([0, -(enc_h / 2 - wall - 1), enc_d / 2])
         rotate([90, 0, 0])
             linear_extrude(wall + 2)
-                union() {
-                    // Vent circle
-                    circle(d = base_circle_d);
-                    // Channel running from circle center to back edge
-                    translate([0, enc_d / 4])
-                        square([base_circle_d, enc_d / 2], center = true);
-                }
+                bottom_cutout_profile();
+}
+
+// 2D rear-tip relief profile. This encodes the same geometry as the previous
+// "subtract trapezoid, then add circles back" construction in one subtraction:
+// subtract (trapezoid minus circles).
+module rear_tip_relief_profile() {
+    difference() {
+        polygon(points = [
+            [-rear_tip_circle_center_x, rear_tip_circle_center_z - enc_d / 2],
+            [ rear_tip_circle_center_x, rear_tip_circle_center_z - enc_d / 2],
+            [ rear_tip_trapezoid_long_half_w,  enc_d / 2 + 0.01],
+            [-rear_tip_trapezoid_long_half_w,  enc_d / 2 + 0.01]
+        ]);
+
+        for (side_sign = [-1, 1])
+            translate([
+                side_sign * rear_tip_circle_center_x,
+                rear_tip_circle_center_z - enc_d / 2
+            ])
+                circle(r = rear_tip_outer_r);
+    }
+}
+
+module rear_tip_outer_relief_remove() {
+    translate([0, -(enc_h / 2 - wall), enc_d / 2])
+        rotate([90, 0, 0])
+            linear_extrude(wall + 0.01)
+                rear_tip_relief_profile();
 }
 
 // Single screw slot — stadium shape, extruded through wall
@@ -178,6 +240,7 @@ module side_slots(side_sign) {
 module enclosure_model() {
     difference() {
         shell();
+        rear_tip_outer_relief_remove();
         front_cutout();
         top_cutout();
         bottom_cutout();
