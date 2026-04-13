@@ -2,7 +2,7 @@
 
 ## Print Orientation
 
-Print upside-down with the top face (square cutout) on the build plate and the bottom face (circular vent cutout) facing up.
+Print upside-down with the top face (square cutout) on the build plate and the bottom face (circular vent cutout / vent-ring face) facing up.
 
 ```
         ┌── bottom face (circle+channel) ─┐
@@ -23,7 +23,7 @@ Print upside-down with the top face (square cutout) on the build plate and the b
 - **Strong bed adhesion.** The top face has a 130 mm square cutout, leaving a ~39 mm-wide frame of contact area (~26,000 mm²). Stable foundation with no thin strips.
 - **Smooth finish where it counts.** The top face (most visible when mounted) gets the smooth bed-contact surface.
 - **Short print.** Only 100 mm tall.
-- **Minimal supports.** The bottom wall (circle + channel cutout) bridges at the ceiling of the print. Use organic/tree supports inside the cavity. Since the cutouts remove most of the bottom wall's material, supports are light and easy to pull out through the open back.
+- **Usually no supports needed.** In the recommended orientation, the vent circle and rear channel open upward, so most slicers can print the shell cleanly without support material. If your slicer preview shows sagging bridges for your machine or material, add supports only where needed.
 - **Strong layer orientation.** Mounting screw loads go through the side walls in shear (the strong direction for FDM), not in layer-separating tension.
 - **Requires a 210+ mm bed** in both X and Y.
 
@@ -55,7 +55,7 @@ Print upside-down with the top face (square cutout) on the build plate and the b
 | Top / bottom solid layers | 8–10 | Ensures the enclosure's top and bottom walls (4 mm thick, printed as vertical walls) are fully solid |
 | Infill | 0% | Not needed — at 4 mm wall thickness, the slicer fills everything with perimeters |
 | Bed adhesion | Brim, 5–8 mm | Tall print (208 mm) on a narrow base (100 mm deep). A brim prevents the base from lifting. |
-| Supports | None | Not needed in the recommended orientation |
+| Supports | Off by default | Usually not needed in the recommended orientation; check your slicer preview before enabling them |
 | Print speed | 40–60 mm/s (PETG) | Conservative speed for good layer adhesion. Outer walls at 30–40 mm/s for surface finish. |
 | Nozzle temp | 230–245 °C (PETG) | Check your filament's datasheet. Higher end improves layer bonding. |
 | Bed temp | 70–80 °C (PETG) | Standard for PETG adhesion |
@@ -72,9 +72,10 @@ Print upside-down with the top face (square cutout) on the build plate and the b
 
 ## Pre-Print Checklist
 
-- [ ] Printer Z height ≥ 210 mm
-- [ ] Bed size ≥ 210 × 110 mm
+- [ ] Printer Z height ≥ 110 mm
+- [ ] Bed size ≥ 210 × 210 mm
 - [ ] PETG filament (or ASA if enclosed printer)
 - [ ] Bed cleaned and leveled
-- [ ] Brim enabled, supports disabled
+- [ ] Brim enabled
+- [ ] Supports off by default; enable only if your slicer preview shows a problem area
 - [ ] Wall count set to fill 4 mm solid (8+ perimeters at 0.4 mm nozzle)

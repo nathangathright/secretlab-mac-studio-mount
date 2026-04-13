@@ -3,8 +3,10 @@ Generate a 360-degree turnaround video of the Mac Studio enclosure.
 
 Usage:
   /Applications/Blender.app/Contents/MacOS/Blender --background --python turnaround.py
+  /Applications/Blender.app/Contents/MacOS/Blender --background --python turnaround.py -- --preview
 """
 
+import argparse
 import bpy
 import math
 import os
@@ -17,12 +19,24 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 MODEL_PATH = os.path.join(SCRIPT_DIR, "mac_studio_enclosure.stl")
 OUTPUT_DIR = os.path.join(SCRIPT_DIR, "turnaround_output")
 
-RESOLUTION_X = 1920
-RESOLUTION_Y = 1080
-FPS = 30
-DURATION_SECONDS = 6
-TOTAL_FRAMES = FPS * DURATION_SECONDS
-SAMPLES = 128  # Cycles render samples
+RENDER_PRESETS = {
+    "final": {
+        "resolution_x": 1920,
+        "resolution_y": 1080,
+        "fps": 30,
+        "duration_seconds": 6,
+        "samples": 128,
+        "output_name": "turnaround.mp4",
+    },
+    "preview": {
+        "resolution_x": 1280,
+        "resolution_y": 720,
+        "fps": 24,
+        "duration_seconds": 4,
+        "samples": 32,
+        "output_name": "turnaround_preview.mp4",
+    },
+}
 
 # Camera orbit settings
 CAMERA_ELEVATION_DEG = 25  # Angle above the horizon
@@ -51,6 +65,28 @@ def clear_scene():
             bpy.data.lights.remove(block)
 
 
+def parse_args():
+    """Parse script arguments passed after Blender's `--` separator."""
+    argv = sys.argv
+    script_argv = argv[argv.index("--") + 1:] if "--" in argv else []
+
+    parser = argparse.ArgumentParser(description=__doc__)
+    mode_group = parser.add_mutually_exclusive_group()
+    mode_group.add_argument(
+        "--preview",
+        action="store_true",
+        help="Render a faster low-cost preview mp4.",
+    )
+    mode_group.add_argument(
+        "--final",
+        action="store_true",
+        help="Render the full-quality mp4 (default).",
+    )
+
+    args = parser.parse_args(script_argv)
+    return "preview" if args.preview else "final"
+
+
 def import_model(filepath):
     """Import the STL model and return the imported object."""
     bpy.ops.wm.stl_import(filepath=filepath)
@@ -58,9 +94,10 @@ def import_model(filepath):
     # STL is in millimeters — scale to meters
     obj.scale = (0.001, 0.001, 0.001)
     bpy.ops.object.transform_apply(scale=True)
-    # Rotate so the enclosure top (short Y axis) faces up (Z)
+    # STL is stored in print orientation; rotate into the normal
+    # upright Mac Studio orientation for the turnaround render.
     import math as _math
-    obj.rotation_euler = (_math.radians(90), 0, 0)
+    obj.rotation_euler = (_math.radians(180), 0, 0)
     bpy.ops.object.transform_apply(rotation=True)
     # Center the object at the origin
     bpy.ops.object.origin_set(type="ORIGIN_GEOMETRY", center="BOUNDS")
@@ -141,7 +178,7 @@ def setup_lighting():
     bg.inputs["Strength"].default_value = 0.3
 
 
-def setup_camera(target_obj, bounding_radius):
+def setup_camera(target_obj, bounding_radius, total_frames):
     """Create camera and parent it to an empty that rotates 360 degrees."""
     elevation = math.radians(CAMERA_ELEVATION_DEG)
     distance = bounding_radius * CAMERA_DISTANCE_FACTOR
@@ -176,7 +213,7 @@ def setup_camera(target_obj, bounding_radius):
     pivot.rotation_euler = (0, 0, 0)
     pivot.keyframe_insert(data_path="rotation_euler", frame=1)
     pivot.rotation_euler = (0, 0, math.radians(360))
-    pivot.keyframe_insert(data_path="rotation_euler", frame=TOTAL_FRAMES + 1)
+    pivot.keyframe_insert(data_path="rotation_euler", frame=total_frames + 1)
 
     # Linear interpolation so speed is constant (Blender 5 layered action API)
     if pivot.animation_data and pivot.animation_data.action:
@@ -192,21 +229,22 @@ def setup_camera(target_obj, bounding_radius):
     return cam_obj
 
 
-def setup_render():
+def setup_render(settings):
     """Configure render settings for Cycles with MP4 output."""
     scene = bpy.context.scene
+    total_frames = settings["fps"] * settings["duration_seconds"]
     scene.frame_start = 1
-    scene.frame_end = TOTAL_FRAMES
-    scene.render.fps = FPS
+    scene.frame_end = total_frames
+    scene.render.fps = settings["fps"]
 
-    scene.render.resolution_x = RESOLUTION_X
-    scene.render.resolution_y = RESOLUTION_Y
+    scene.render.resolution_x = settings["resolution_x"]
+    scene.render.resolution_y = settings["resolution_y"]
     scene.render.resolution_percentage = 100
 
     # Use EEVEE
     scene.render.engine = "BLENDER_EEVEE"
     eevee = scene.eevee
-    eevee.taa_render_samples = SAMPLES
+    eevee.taa_render_samples = settings["samples"]
     print("Render engine: EEVEE")
 
     # Render to PNG frames (ffmpeg encodes to MP4 after)
@@ -218,6 +256,7 @@ def setup_render():
     scene.render.filepath = os.path.join(OUTPUT_DIR, "frame_")
 
     scene.render.film_transparent = False
+    return total_frames
 
 
 def add_ground_plane():
@@ -261,10 +300,14 @@ def add_ground_plane():
 # ---------------------------------------------------------------------------
 
 def main():
+    render_mode = parse_args()
+    render_settings = RENDER_PRESETS[render_mode]
+
     if not os.path.isfile(MODEL_PATH):
         print(f"ERROR: Model not found at {MODEL_PATH}")
         sys.exit(1)
 
+    print(f"Render preset: {render_mode}")
     print(f"Importing model from {MODEL_PATH}")
     clear_scene()
 
@@ -291,21 +334,27 @@ def main():
     print(f"Bounding radius: {radius:.3f} m")
 
     setup_lighting()
-    setup_camera(target, radius)
+    total_frames = render_settings["fps"] * render_settings["duration_seconds"]
+    setup_camera(target, radius, total_frames)
     add_ground_plane()
-    setup_render()
+    total_frames = setup_render(render_settings)
 
     # Render frames
-    print(f"Rendering {TOTAL_FRAMES} frames at {RESOLUTION_X}x{RESOLUTION_Y} ...")
+    print(
+        "Rendering "
+        f"{total_frames} frames at "
+        f"{render_settings['resolution_x']}x{render_settings['resolution_y']} "
+        f"with {render_settings['samples']} samples ..."
+    )
     bpy.ops.render.render(animation=True)
 
     # Encode to MP4 with ffmpeg
     import subprocess
     frame_pattern = os.path.join(OUTPUT_DIR, "frame_%04d.png")
-    mp4_path = os.path.join(OUTPUT_DIR, "turnaround.mp4")
+    mp4_path = os.path.join(OUTPUT_DIR, render_settings["output_name"])
     cmd = [
         "ffmpeg", "-y",
-        "-framerate", str(FPS),
+        "-framerate", str(render_settings["fps"]),
         "-i", frame_pattern,
         "-c:v", "libx264",
         "-crf", "18",

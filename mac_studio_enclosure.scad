@@ -175,11 +175,18 @@ module side_slots(side_sign) {
 // Final Assembly
 // ═══════════════════════════════════════════════════════════════════════
 
-difference() {
-    shell();
-    front_cutout();
-    top_cutout();
-    bottom_cutout();
-    side_slots(-1);  // left
-    side_slots(+1);  // right
+module enclosure_model() {
+    difference() {
+        shell();
+        front_cutout();
+        top_cutout();
+        bottom_cutout();
+        side_slots(-1);  // left
+        side_slots(+1);  // right
+    }
 }
+
+// Export in the recommended print orientation:
+// top face on the bed, vent-ring face up, 100 mm tall in Z.
+rotate([-90, 0, 0])
+    enclosure_model();

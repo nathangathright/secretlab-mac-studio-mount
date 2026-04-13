@@ -18,7 +18,7 @@ The design is fully parametric — all dimensions derive from the Mac Studio's o
 
 **Material:** PETG recommended. Do not use PLA — the Mac Studio's exhaust heat will soften it.
 
-**Orientation:** Print upside-down with the top face (square cutout) on the build plate. This gives the best corner finish, strongest layer orientation for mounting loads, and requires no supports.
+**Orientation:** The Mac Studio is used on its side inside the enclosure, but the enclosure itself prints best upside-down with the top face (square cutout) on the build plate and the vent-ring face up. This gives the best corner finish, strongest layer orientation for mounting loads, and usually does not require supports.
 
 **Bed size:** 210 mm × 210 mm minimum.
 
@@ -32,7 +32,7 @@ To regenerate the STL: **Design → Render (F6)** then **File → Export → STL
 
 ## Mounting
 
-The enclosure has four converging screw slots on each side face, sized for M5 bolts with 10 mm of adjustment travel. Fasten one side to the underside of your desk (or a mounting bracket). The open back faces outward for cable access.
+The enclosure has four converging screw slots on each side face, sized for M5 bolts with 10 mm of adjustment travel. In use, the Mac Studio sits on its side inside the enclosure. Fasten one side to the underside of your desk (or a mounting bracket). The open back faces outward for cable access.
 
 ## Turnaround Video
 
@@ -42,7 +42,13 @@ To render a 360° turnaround video (requires [Blender](https://www.blender.org/)
 /Applications/Blender.app/Contents/MacOS/Blender --background --python turnaround.py
 ```
 
-Output is saved to `turnaround_output/turnaround.mp4`.
+For a faster draft render while iterating:
+
+```
+/Applications/Blender.app/Contents/MacOS/Blender --background --python turnaround.py -- --preview
+```
+
+Final output is saved to `turnaround_output/turnaround.mp4`. Preview output is saved to `turnaround_output/turnaround_preview.mp4`.
 
 ## License
 
