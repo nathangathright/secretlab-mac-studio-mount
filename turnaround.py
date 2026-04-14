@@ -27,6 +27,11 @@ ENCLOSURE_WALL_THICKNESS = 0.004
 SIDE_CLEARANCE = 0.0055
 TOP_BOTTOM_CLEARANCE = 0.0025
 MAC_STUDIO_TARGET_DIMS = Vector((0.196726, 0.197478, 0.095133))
+# Lock the USDZ asset to an explicit orientation so asymmetric enclosure features
+# stay on the intended rendered side. This preserves the current "front ports to
+# the opening, top surface upright" presentation without relying on ambiguous
+# bounding-box fitting across a nearly square footprint.
+MAC_STUDIO_ASSET_ROTATION_DEG = (90, 0, 180)
 
 RENDER_PRESETS = {
     "final": {
@@ -179,33 +184,15 @@ def parent_objects_to_empty(objects, name):
     return root
 
 
-def find_best_mac_rotation(root, mac_objects):
-    """Find a right-angle rotation that matches the Mac Studio target dimensions."""
-    best_rotation = None
-    best_scale = None
-    best_score = None
-
-    for rx in (0, 90, 180, 270):
-        for ry in (0, 90, 180, 270):
-            for rz in (0, 90, 180, 270):
-                root.rotation_euler = tuple(math.radians(v) for v in (rx, ry, rz))
-                bpy.context.view_layer.update()
-                dims = get_world_bbox(mac_objects)[1] - get_world_bbox(mac_objects)[0]
-                scale = MAC_STUDIO_TARGET_DIMS.dot(dims) / max(dims.dot(dims), 1e-12)
-                fitted = dims * scale
-                score = (
-                    abs(fitted.x - MAC_STUDIO_TARGET_DIMS.x)
-                    + abs(fitted.y - MAC_STUDIO_TARGET_DIMS.y)
-                    + abs(fitted.z - MAC_STUDIO_TARGET_DIMS.z)
-                )
-                if best_score is None or score < best_score:
-                    best_rotation = root.rotation_euler.copy()
-                    best_scale = scale
-                    best_score = score
-
-    root.rotation_euler = best_rotation
+def orient_mac_studio_asset(root, mac_objects):
+    """Apply a deterministic USDZ orientation and return the fitted uniform scale."""
+    root.rotation_euler = tuple(math.radians(v) for v in MAC_STUDIO_ASSET_ROTATION_DEG)
     bpy.context.view_layer.update()
-    return best_rotation, best_scale
+
+    mins, maxs = get_world_bbox(mac_objects)
+    dims = maxs - mins
+    scale = MAC_STUDIO_TARGET_DIMS.dot(dims) / max(dims.dot(dims), 1e-12)
+    return scale
 
 
 def create_mac_material():
@@ -238,12 +225,7 @@ def import_mac_studio(filepath, enclosure_obj):
         raise RuntimeError("USD import did not create any mesh objects.")
 
     root = parent_objects_to_empty(mac_objects, "MacStudioRoot")
-    _, scale = find_best_mac_rotation(root, mac_objects)
-    # Match the enclosure's display orientation: front ports face the opening and
-    # the Mac's top surface remains upright after the enclosure STL is rotated
-    # out of its print orientation.
-    root.rotation_euler.y += math.radians(180)
-    root.rotation_euler.z += math.radians(180)
+    scale = orient_mac_studio_asset(root, mac_objects)
     root.scale = (scale, scale, scale)
     bpy.context.view_layer.update()
 
