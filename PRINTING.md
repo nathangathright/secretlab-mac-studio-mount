@@ -20,7 +20,7 @@ Print upside-down with the top face (square cutout) on the build plate and the b
 ```
 
 - **Best corner finish.** The four rounded edges run along the build axis. Each layer traces a smooth arc — no stairstepping.
-- **Strong bed adhesion.** The top face has a 130 mm square cutout, leaving a ~39 mm-wide frame of contact area (~26,000 mm²). Stable foundation with no thin strips.
+- **Strong bed adhesion.** The top face has a ~138 mm square cutout, leaving a ~35 mm-wide frame of contact area (~24,000 mm²). Stable foundation with no thin strips.
 - **Smooth finish where it counts.** The top face (most visible when mounted) gets the smooth bed-contact surface.
 - **Short print.** Only 100 mm tall.
 - **Usually no supports needed.** In the recommended orientation, the vent circle and rear channel open upward, so most slicers can print the shell cleanly without support material. If your slicer preview shows sagging bridges for your machine or material, add supports only where needed.
@@ -66,7 +66,7 @@ Print upside-down with the top face (square cutout) on the build plate and the b
 
 1. **Remove brim** with a deburring tool or flush cutters.
 2. **Light sanding** of the front face (the bed-contact surface) with 220-grit sandpaper to smooth any elephant's foot or brim remnants.
-3. **Test-fit the Mac Studio** before mounting. It should slide in from the back with slight clearance on all sides. The rear bottom tips are softened on the outer baseplate profile for handling comfort, but the vent circle and rear channel opening are unchanged from the original fit geometry. If the fit is too tight, lightly sand the interior walls.
+3. **Test-fit the Mac Studio** before mounting. It should slide in from the back with slight clearance on all sides. The rear bottom tips are softened on the outer baseplate profile for handling comfort, but the vent circle and rear channel opening are unchanged from the original fit geometry. The front and top openings now use smaller-radius corners with a light chamfer on the exterior edge; if your printer leaves any lip or elephant's foot there, lightly sand those beveled edges before judging cable clearance. If the fit is too tight overall, lightly sand the interior walls.
 4. **Check screw slot alignment** by holding the enclosure against your mounting bracket and passing M5 bolts through the slots. The 10 mm slot length provides adjustment travel.
 
 

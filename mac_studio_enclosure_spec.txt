@@ -83,37 +83,41 @@ FRONT — PORT/DISPLAY CUTOUT
 A rectangular cutout on the front face, centered both horizontally
 and vertically, passing fully through the 4 mm wall.
 
-The cutout should be sized to expose the Mac Studio's front panel.
-There are a few ways to determine the dimensions depending on what
-you are accommodating:
+In the current design, the front opening is intentionally wider than
+the earlier conservative "maximum access" version. A printed fit test
+and orthographic render overlay showed that the outer front USB-C port
+sits low enough on the Mac Studio front panel that a large lower corner
+radius eats into the usable width exactly where that port lives.
 
-  Option 1 — Front port cluster only:
-    Measure the bounding box around all front-facing ports (USB-C,
-    SDXC slot, 3.5 mm jack, depending on model). Add 3-5 mm of
-    margin on each side. Use this if you only need cable access and
-    don't plan to mount anything over the front face.
+The implemented fix keeps the cutout centered, increases its width,
+reduces its corner radius, and adds a light chamfer on the exterior
+edge of the wall:
 
-  Option 2 — Aftermarket display or panel:
-    If you are mounting a small display, button panel, or similar
-    accessory in the front cutout, size the cutout to match the
-    visible area of that component. A typical 6-7" embedded display
-    has a visible area in the range of 149 x 92 mm. Measure your
-    specific panel.
+  Cutout width   =  Enclosure width
+                   - 2 x enclosure corner radius
+                   - 2 x front-width margin
+                   + 12 mm extra width
 
-  Option 3 — Maximum front access:
-    Make the cutout as large as structurally reasonable. Leave at
-    least 15 mm of material between the cutout edge and the
-    enclosure edge on all sides to keep the front face rigid.
+  Cutout height  =  Enclosure height - 2 x front-height margin
 
-  Cutout width   =  D + margin (see options above)
-  Cutout height  =  E + margin
+With the current Mac Studio-derived numbers in this repo, that yields:
 
-All four corners of this cutout are rounded:
+  Cutout width   ≈ 138.2 mm
+  Cutout height  =  70 mm
 
-  Cutout corner radius  =  F, or if the feature you are exposing
-    has sharp corners, use half the wall thickness (2 mm) as a
-    minimum for printability. 12-13 mm produces a soft, Mac-like
-    aesthetic that visually echoes the enclosure's own corners.
+All four corners of this cutout are rounded with a small radius:
+
+  Cutout corner radius  =  3 mm
+
+The smaller radius keeps more usable width near the bottom port band
+than a 12-13 mm aesthetic radius would.
+
+The outer edge of the front wall is chamfered around the opening:
+
+  Front cutout chamfer  =  1.5 mm
+
+This chamfer is a comfort and finish detail on the outside surface; it
+does not reduce the nominal through-opening deeper in the wall.
 
 
 TOP — SQUARE CUTOUT
@@ -121,30 +125,26 @@ TOP — SQUARE CUTOUT
 A square cutout centered on the top face, passing fully through the
 4 mm wall. This saves material and can aid ventilation.
 
-The size is constrained by the enclosure's rounded corners. Because
-the corners curve inward, the tightest point between the cutout and
-the enclosure edge is along the diagonal, not the flat sides.
+The current design ties the top opening directly to the front opening
+width for visual consistency:
 
-To find the maximum safe size, measure from the center of the top
-face to the nearest point of the inner corner profile along the
-45-degree diagonal. Call this distance R_diag. Then:
+  Top cutout side  =  Front cutout width
 
-  Maximum square side  =  (R_diag - minimum_margin) x 2 / 1.414
-                           + 2 x cutout_corner_radius x (1 - 1/1.414)
+With the current values in this repo:
 
-In practice, for a hanging under-desk mount subject to vibration:
+  Top cutout side  ≈ 138.2 mm
 
-  Conservative (25 mm diagonal margin):  ~120 mm
-  Recommended  (20 mm diagonal margin):  ~130 mm
-  Aggressive   (15 mm diagonal margin):  ~140 mm
+This is larger than the earlier 130 mm recommendation, but it still
+leaves roughly 35 mm of material between the cutout and the outer
+edge on each flat side of the 208 mm top face.
 
-The recommended size leaves roughly 20 mm of material at the
-tightest diagonal point — enough to handle the sustained load
-of the Mac Studio's weight and vibration from desk height
-adjustments.
+The top cutout uses the same edge treatment as the front opening:
 
-  Cutout corner radius  =  Same as the front cutout corner radius,
-    for visual consistency. 12-13 mm works well.
+  Top cutout corner radius  =  3 mm
+  Top cutout chamfer        =  1.5 mm
+
+As on the front face, the chamfer is applied only to the exterior
+edge of the wall opening.
 
 
 BOTTOM — CIRCULAR CUTOUT AND CHANNEL
@@ -249,14 +249,19 @@ SUMMARY OF WHAT COMES FROM THE MAC STUDIO
   Enclosure width/depth    →  Mac Studio footprint + 11 mm
   Enclosure height         →  Mac Studio height + 5 mm
   Enclosure corner radius  →  Mac Studio corner radius + 5.5 mm
-  Front cutout size        →  Mac Studio front port area (+ margin),
-                              or sized to a specific display panel
-  Front cutout radius      →  Mac Studio front panel radius, or
-                              chosen for aesthetics (12-13 mm)
+  Front cutout size        →  Structural/access choice informed by
+                              the front port layout; current
+                              implementation is a widened centered cutout
+  Front cutout radius      →  Structural/access choice; current
+                              implementation uses 3 mm
+  Front cutout chamfer     →  Exterior finish/detail choice;
+                              current implementation uses 1.5 mm
   Bottom circle diameter   →  Mac Studio base/vent ring diameter
   Bottom channel           →  Exists if Mac Studio base protrudes
 
   Wall thickness (4 mm)    →  Structural choice, not from Mac Studio
-  Top cutout (130 mm)      →  Structural choice, constrained by
-                              enclosure corner geometry
+  Top cutout (~138.2 mm)   →  Structural/visual choice; current
+                              implementation matches front cutout width
+  Top cutout chamfer       →  Exterior finish/detail choice;
+                              current implementation uses 1.5 mm
   Screw slot pattern       →  Mounting choice, based on M5 hardware

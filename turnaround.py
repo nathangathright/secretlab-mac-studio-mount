@@ -3,8 +3,9 @@ Generate a 360-degree turnaround video of the Mac Studio enclosure.
 
 Usage:
   /Applications/Blender.app/Contents/MacOS/Blender --background --python turnaround.py
-  /Applications/Blender.app/Contents/MacOS/Blender --background --python turnaround.py -- --preview
-  /Applications/Blender.app/Contents/MacOS/Blender --background --python turnaround.py -- --preview --frame
+  /Applications/Blender.app/Contents/MacOS/Blender --background --python turnaround.py -- --final
+  /Applications/Blender.app/Contents/MacOS/Blender --background --python turnaround.py -- --frame
+  /Applications/Blender.app/Contents/MacOS/Blender --background --python turnaround.py -- --include-mac-studio
 """
 
 import argparse
@@ -12,13 +13,20 @@ import bpy
 import math
 import os
 import sys
+from mathutils import Vector
 
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 MODEL_PATH = os.path.join(SCRIPT_DIR, "mac_studio_enclosure.stl")
+MAC_STUDIO_PATH = os.path.join(SCRIPT_DIR, "mac-studio.usdz")
 OUTPUT_DIR = os.path.join(SCRIPT_DIR, "turnaround_output")
+
+ENCLOSURE_WALL_THICKNESS = 0.004
+SIDE_CLEARANCE = 0.0055
+TOP_BOTTOM_CLEARANCE = 0.0025
+MAC_STUDIO_TARGET_DIMS = Vector((0.196726, 0.197478, 0.095133))
 
 RENDER_PRESETS = {
     "final": {
@@ -42,7 +50,8 @@ RENDER_PRESETS = {
 # Camera orbit settings
 CAMERA_ELEVATION_DEG = 25  # Angle above the horizon
 CAMERA_DISTANCE_FACTOR = 6.0  # Multiplier on model bounding radius
-DEFAULT_STILL_FRAME = 72
+DEFAULT_STILL_FRAME = 25
+ORTHO_FRONT_MARGIN = 1.15
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -73,16 +82,10 @@ def parse_args():
     script_argv = argv[argv.index("--") + 1:] if "--" in argv else []
 
     parser = argparse.ArgumentParser(description=__doc__)
-    mode_group = parser.add_mutually_exclusive_group()
-    mode_group.add_argument(
-        "--preview",
-        action="store_true",
-        help="Render a faster low-cost preview mp4.",
-    )
-    mode_group.add_argument(
+    parser.add_argument(
         "--final",
         action="store_true",
-        help="Render the full-quality mp4 (default).",
+        help="Render the full-quality mp4 instead of the default preview render.",
     )
     parser.add_argument(
         "--frame",
@@ -94,9 +97,19 @@ def parse_args():
             f"If no frame is supplied, defaults to {DEFAULT_STILL_FRAME}."
         ),
     )
+    parser.add_argument(
+        "--include-mac-studio",
+        action="store_true",
+        help="Include the Mac Studio USDZ model inside the enclosure.",
+    )
+    parser.add_argument(
+        "--orthographic-front",
+        action="store_true",
+        help="Use a static orthographic front camera instead of the turnaround orbit.",
+    )
 
     args = parser.parse_args(script_argv)
-    args.render_mode = "preview" if args.preview else "final"
+    args.render_mode = "final" if args.final else "preview"
     return args
 
 
@@ -118,12 +131,143 @@ def import_model(filepath):
     return obj
 
 
-def get_bounding_radius(obj):
-    """Return the radius of the bounding sphere of the object."""
-    bbox = [obj.matrix_world @ v.co for v in obj.data.vertices]
-    from mathutils import Vector
-    center = sum(bbox, Vector()) / len(bbox)
-    return max((v - center).length for v in bbox)
+def get_mesh_objects(objects):
+    """Return only mesh objects from an iterable."""
+    return [obj for obj in objects if obj.type == "MESH"]
+
+
+def get_world_vertices(objects):
+    """Return all world-space vertices for the given mesh objects."""
+    verts = []
+    for obj in get_mesh_objects(objects):
+        verts.extend(obj.matrix_world @ v.co for v in obj.data.vertices)
+    return verts
+
+
+def get_world_bbox(objects):
+    """Return the world-space bounding box for the given mesh objects."""
+    verts = get_world_vertices(objects)
+    mins = Vector((min(v.x for v in verts), min(v.y for v in verts), min(v.z for v in verts)))
+    maxs = Vector((max(v.x for v in verts), max(v.y for v in verts), max(v.z for v in verts)))
+    return mins, maxs
+
+
+def get_bbox_center(objects):
+    """Return the center of the world-space bounding box."""
+    mins, maxs = get_world_bbox(objects)
+    return (mins + maxs) / 2.0
+
+
+def get_bounding_radius(objects):
+    """Return the radius of the bounding sphere of the mesh objects."""
+    verts = get_world_vertices(objects)
+    center = sum(verts, Vector()) / len(verts)
+    return max((v - center).length for v in verts)
+
+
+def parent_objects_to_empty(objects, name):
+    """Parent imported objects to a single empty while preserving transforms."""
+    center = get_bbox_center(objects)
+    root = bpy.data.objects.new(name, None)
+    bpy.context.collection.objects.link(root)
+    root.location = center
+    for obj in objects:
+        obj.parent = root
+        obj.matrix_parent_inverse = root.matrix_world.inverted()
+    root.location = (0, 0, 0)
+    bpy.context.view_layer.update()
+    return root
+
+
+def find_best_mac_rotation(root, mac_objects):
+    """Find a right-angle rotation that matches the Mac Studio target dimensions."""
+    best_rotation = None
+    best_scale = None
+    best_score = None
+
+    for rx in (0, 90, 180, 270):
+        for ry in (0, 90, 180, 270):
+            for rz in (0, 90, 180, 270):
+                root.rotation_euler = tuple(math.radians(v) for v in (rx, ry, rz))
+                bpy.context.view_layer.update()
+                dims = get_world_bbox(mac_objects)[1] - get_world_bbox(mac_objects)[0]
+                scale = MAC_STUDIO_TARGET_DIMS.dot(dims) / max(dims.dot(dims), 1e-12)
+                fitted = dims * scale
+                score = (
+                    abs(fitted.x - MAC_STUDIO_TARGET_DIMS.x)
+                    + abs(fitted.y - MAC_STUDIO_TARGET_DIMS.y)
+                    + abs(fitted.z - MAC_STUDIO_TARGET_DIMS.z)
+                )
+                if best_score is None or score < best_score:
+                    best_rotation = root.rotation_euler.copy()
+                    best_scale = scale
+                    best_score = score
+
+    root.rotation_euler = best_rotation
+    bpy.context.view_layer.update()
+    return best_rotation, best_scale
+
+
+def create_mac_material():
+    """Create a simple aluminum-like material for the Mac Studio."""
+    mat = bpy.data.materials.new(name="Mac_Studio_Material")
+    mat.use_nodes = True
+    nodes = mat.node_tree.nodes
+    links = mat.node_tree.links
+    nodes.clear()
+
+    bsdf = nodes.new("ShaderNodeBsdfPrincipled")
+    bsdf.location = (0, 0)
+    bsdf.inputs["Base Color"].default_value = (0.72, 0.74, 0.77, 1.0)
+    bsdf.inputs["Metallic"].default_value = 0.15
+    bsdf.inputs["Roughness"].default_value = 0.28
+
+    output = nodes.new("ShaderNodeOutputMaterial")
+    output.location = (300, 0)
+    links.new(bsdf.outputs["BSDF"], output.inputs["Surface"])
+    return mat
+
+
+def import_mac_studio(filepath, enclosure_obj):
+    """Import, orient, scale, and position the Mac Studio and enclosure together."""
+    existing_objects = set(bpy.data.objects)
+    bpy.ops.wm.usd_import(filepath=filepath)
+    imported = [obj for obj in bpy.data.objects if obj not in existing_objects]
+    mac_objects = get_mesh_objects(imported)
+    if not mac_objects:
+        raise RuntimeError("USD import did not create any mesh objects.")
+
+    root = parent_objects_to_empty(mac_objects, "MacStudioRoot")
+    _, scale = find_best_mac_rotation(root, mac_objects)
+    # Match the enclosure's display orientation: front ports face the opening and
+    # the Mac's top surface remains upright after the enclosure STL is rotated
+    # out of its print orientation.
+    root.rotation_euler.y += math.radians(180)
+    root.rotation_euler.z += math.radians(180)
+    root.scale = (scale, scale, scale)
+    bpy.context.view_layer.update()
+
+    enclosure_mins, enclosure_maxs = get_world_bbox([enclosure_obj])
+    mac_mins, mac_maxs = get_world_bbox(mac_objects)
+    mac_dims = mac_maxs - mac_mins
+    enclosure_center = (enclosure_mins + enclosure_maxs) / 2.0
+    front_face_y = enclosure_maxs.y
+    mac_center_y = front_face_y - (ENCLOSURE_WALL_THICKNESS + SIDE_CLEARANCE + mac_dims.y / 2.0)
+
+    root.location = (enclosure_center.x, mac_center_y, -mac_mins.z)
+    bpy.context.view_layer.update()
+
+    enclosure_mins, enclosure_maxs = get_world_bbox([enclosure_obj])
+    desired_enclosure_min_z = TOP_BOTTOM_CLEARANCE
+    enclosure_obj.location.z += desired_enclosure_min_z - enclosure_mins.z
+    bpy.context.view_layer.update()
+
+    mac_material = create_mac_material()
+    for obj in mac_objects:
+        obj.data.materials.clear()
+        obj.data.materials.append(mac_material)
+
+    return root, mac_objects
 
 
 def create_material():
@@ -151,8 +295,8 @@ def create_material():
     return mat
 
 
-def setup_lighting():
-    """Three-point lighting with a soft environment."""
+def setup_lighting(target_obj=None, orthographic_front=False):
+    """Three-point lighting with an optional front fill for orthographic renders."""
     # Key light — area light, upper-right
     key_data = bpy.data.lights.new(name="Key", type="AREA")
     key_data.energy = 200
@@ -190,9 +334,48 @@ def setup_lighting():
     bg.inputs["Color"].default_value = (0.05, 0.05, 0.06, 1.0)
     bg.inputs["Strength"].default_value = 0.3
 
+    if orthographic_front:
+        front_data = bpy.data.lights.new(name="FrontFill", type="AREA")
+        front_data.energy = 90
+        front_data.size = 2.2
+        front_data.color = (1.0, 0.98, 0.95)
+        front_obj = bpy.data.objects.new("FrontFill", front_data)
+        bpy.context.collection.objects.link(front_obj)
+        front_obj.location = (-1.6, 1.8, 1.35)
+        if target_obj is not None:
+            track = front_obj.constraints.new(type="TRACK_TO")
+            track.target = target_obj
+            track.track_axis = "TRACK_NEGATIVE_Z"
+            track.up_axis = "UP_Y"
 
-def setup_camera(target_obj, bounding_radius, total_frames):
-    """Create camera and parent it to an empty that rotates 360 degrees."""
+
+def setup_camera(target_obj, render_objects, bounding_radius, total_frames, orthographic_front=False):
+    """Create either the turnaround camera or a static orthographic front camera."""
+    if orthographic_front:
+        mins, maxs = get_world_bbox(render_objects)
+        center = (mins + maxs) / 2.0
+        width = maxs.x - mins.x
+        height = maxs.z - mins.z
+        depth = maxs.y - mins.y
+
+        cam_data = bpy.data.cameras.new("FrontOrthoCamera")
+        cam_data.type = "ORTHO"
+        cam_data.ortho_scale = max(width, height) * ORTHO_FRONT_MARGIN
+        cam_data.clip_start = 0.01
+        cam_data.clip_end = 100.0
+        cam_obj = bpy.data.objects.new("FrontOrthoCamera", cam_data)
+        bpy.context.collection.objects.link(cam_obj)
+        cam_obj.location = (center.x, maxs.y + max(depth * 2.0, 0.5), center.z)
+
+        track = cam_obj.constraints.new(type="TRACK_TO")
+        track.target = target_obj
+        track.track_axis = "TRACK_NEGATIVE_Z"
+        track.up_axis = "UP_Y"
+
+        bpy.context.scene.camera = cam_obj
+        return cam_obj
+
+    # Default turnaround camera: perspective camera parented to a rotating pivot.
     elevation = math.radians(CAMERA_ELEVATION_DEG)
     distance = bounding_radius * CAMERA_DISTANCE_FACTOR
 
@@ -280,7 +463,7 @@ def still_output_path(render_mode, frame_number):
     )
 
 
-def add_ground_plane():
+def add_ground_plane(render_objects):
     """Add a subtle ground shadow-catcher plane."""
     bpy.ops.mesh.primitive_plane_add(size=20, location=(0, 0, 0))
     plane = bpy.context.active_object
@@ -288,13 +471,10 @@ def add_ground_plane():
 
     # Find the lowest point of any mesh object to position the plane
     min_z = 0
-    for obj in bpy.data.objects:
-        if obj.type == "MESH" and obj.name != "GroundPlane":
-            for v in obj.data.vertices:
-                world_co = obj.matrix_world @ v.co
-                min_z = min(min_z, world_co.z)
+    for world_co in get_world_vertices(render_objects):
+        min_z = min(min_z, world_co.z)
 
-    plane.location.z = min_z - 0.001
+    plane.location.z = min_z
 
     # Shadow catcher material — dark surface that catches shadows
     mat = bpy.data.materials.new(name="Ground_Material")
@@ -328,6 +508,9 @@ def main():
     if not os.path.isfile(MODEL_PATH):
         print(f"ERROR: Model not found at {MODEL_PATH}")
         sys.exit(1)
+    if args.include_mac_studio and not os.path.isfile(MAC_STUDIO_PATH):
+        print(f"ERROR: Mac Studio model not found at {MAC_STUDIO_PATH}")
+        sys.exit(1)
 
     print(f"Render preset: {render_mode}")
     print(f"Importing model from {MODEL_PATH}")
@@ -336,6 +519,7 @@ def main():
     # Import
     obj = import_model(MODEL_PATH)
     print(f"Imported: {obj.name}  —  {len(obj.data.vertices)} verts")
+    render_objects = [obj]
 
     # Auto-smooth by angle — only smooths faces within 30 degrees of each other,
     # keeping hard edges sharp and eliminating vertex-shadow artifacts
@@ -346,19 +530,31 @@ def main():
     obj.data.materials.clear()
     obj.data.materials.append(mat)
 
-    # Create an empty at origin for tracking
+    if args.include_mac_studio:
+        print(f"Importing Mac Studio from {MAC_STUDIO_PATH}")
+        _, mac_objects = import_mac_studio(MAC_STUDIO_PATH, obj)
+        render_objects.extend(mac_objects)
+        print(f"Imported Mac Studio — {len(mac_objects)} mesh objects")
+
+    # Create an empty at the assembly center for tracking
     target = bpy.data.objects.new("CameraTarget", None)
-    target.location = (0, 0, 0)
+    target.location = get_bbox_center(render_objects)
     bpy.context.collection.objects.link(target)
 
     # Setup scene
-    radius = get_bounding_radius(obj)
+    radius = get_bounding_radius(render_objects)
     print(f"Bounding radius: {radius:.3f} m")
 
-    setup_lighting()
+    setup_lighting(target, orthographic_front=args.orthographic_front)
     total_frames = render_settings["fps"] * render_settings["duration_seconds"]
-    setup_camera(target, radius, total_frames)
-    add_ground_plane()
+    setup_camera(
+        target,
+        render_objects,
+        radius,
+        total_frames,
+        orthographic_front=args.orthographic_front,
+    )
+    add_ground_plane(render_objects)
     total_frames = setup_render(render_settings)
 
     if args.frame is not None:

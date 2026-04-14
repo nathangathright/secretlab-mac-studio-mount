@@ -22,18 +22,21 @@ enc_h  = body_h + 2 * tb_clearance;            // 100 mm
 enc_cr = corner_r + side_clearance;            // 35.9 mm outer corner radius
 inner_cr = enc_cr - wall;                      // 31.9 mm inner corner radius
 
-// ── Front Cutout (Option 3: maximum access) ──────────────────────────
-// Width margin starts from the flat face (after corner radius), not the outer edge.
-// Height margin from the top/bottom edges (which are sharp, not rounded).
+// ── Front Cutout ───────────────────────────────────────────────────────
+// Keep the opening centered, but widen it enough that the earlier
+// lower-corner USB-C relief becomes unnecessary.
 front_w_margin  = 5;     // margin inward from start of flat face (mm)
 front_h_margin  = 15;    // margin from top/bottom enclosure edge (mm)
-front_cutout_w  = enc_w - 2 * enc_cr - 2 * front_w_margin;  // ~126 mm
+front_cutout_extra_w = 12;  // centered width increase to absorb the former one-sided relief
+front_cutout_w  = enc_w - 2 * enc_cr - 2 * front_w_margin + front_cutout_extra_w;  // ~138.2 mm
 front_cutout_h  = enc_h - 2 * front_h_margin;                // 70 mm
-front_cutout_cr = 12.5;  // cutout corner radius (mm)
+front_cutout_cr = 3;     // tighter radius preserves width lower in the port band
+front_cutout_chamfer = 1.5;  // front-face chamfer depth/width around the opening (mm)
 
 // ── Top Cutout ───────────────────────────────────────────────────────
-top_cutout_side = 130;   // square side length (mm)
-top_cutout_cr   = 12.5;  // corner radius (mm)
+top_cutout_side = front_cutout_w;  // keep the top opening matched to the front opening width
+top_cutout_cr   = front_cutout_cr;  // use the same corner radius as the front opening
+top_cutout_chamfer = front_cutout_chamfer;  // mirror the front opening chamfer
 
 // ── Rear Tip Outer Profile ───────────────────────────────────────────
 rear_tip_outer_r = 4;    // target rear tip round-over radius (mm)
@@ -143,19 +146,69 @@ module shell() {
     }
 }
 
-// Front face cutout — passes through the 4mm front wall
+module front_cutout_profile() {
+    rounded_rect(front_cutout_w, front_cutout_h, front_cutout_cr);
+}
+
+module front_cutout_chamfer() {
+    eps = 0.01;
+
+    // Chamfer only the exterior edge by transitioning from a slightly enlarged
+    // outer profile at the front face to the nominal opening inside the wall.
+    hull() {
+        translate([0, 0, -eps])
+            linear_extrude(eps)
+                offset(delta = front_cutout_chamfer)
+                    front_cutout_profile();
+
+        translate([0, 0, front_cutout_chamfer])
+            linear_extrude(eps)
+                front_cutout_profile();
+    }
+}
+
 module front_cutout() {
-    translate([0, 0, -1])
-        linear_extrude(wall + 2)
-            rounded_rect(front_cutout_w, front_cutout_h, front_cutout_cr);
+    union() {
+        translate([0, 0, -1])
+            linear_extrude(wall + 2)
+                front_cutout_profile();
+
+        front_cutout_chamfer();
+    }
+}
+
+module top_cutout_profile() {
+    rounded_rect(top_cutout_side, top_cutout_side, top_cutout_cr);
+}
+
+module top_cutout_chamfer_profile() {
+    eps = 0.01;
+    top_outer_face_z = wall + 1;
+
+    // Chamfer the exterior top-face edge by transitioning from a slightly
+    // enlarged profile at the outside surface to the nominal opening inside.
+    hull() {
+        translate([0, 0, top_outer_face_z - top_cutout_chamfer])
+            linear_extrude(eps)
+                top_cutout_profile();
+
+        translate([0, 0, top_outer_face_z - eps])
+            linear_extrude(eps)
+                offset(delta = top_cutout_chamfer)
+                    top_cutout_profile();
+    }
 }
 
 // Top face cutout — square hole through the top wall
 module top_cutout() {
     translate([0, enc_h / 2 - wall - 1, enc_d / 2])
         rotate([-90, 0, 0])
-            linear_extrude(wall + 2)
-                rounded_rect(top_cutout_side, top_cutout_side, top_cutout_cr);
+            union() {
+                linear_extrude(wall + 2)
+                    top_cutout_profile();
+
+                top_cutout_chamfer_profile();
+            }
 }
 
 // Exact 2D bottom cutout profile used for both visualization and subtraction.

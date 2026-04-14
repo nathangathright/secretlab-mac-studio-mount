@@ -48,19 +48,20 @@ To render a 360° turnaround video (requires [Blender](https://www.blender.org/)
 /Applications/Blender.app/Contents/MacOS/Blender --background --python turnaround.py
 ```
 
-For a faster draft render while iterating:
+To render the full-quality MP4 instead of the default preview render:
 
 ```
-/Applications/Blender.app/Contents/MacOS/Blender --background --python turnaround.py -- --preview
+/Applications/Blender.app/Contents/MacOS/Blender --background --python turnaround.py -- --final
 ```
 
-To render a single still from the same camera orbit, use `--frame`. If you omit the frame number, it defaults to frame 72.
+To render a single still from the same camera orbit, use `--frame`. If you omit the frame number, it defaults to frame 25.
 
 ```
-/Applications/Blender.app/Contents/MacOS/Blender --background --python turnaround.py -- --preview --frame 73
+/Applications/Blender.app/Contents/MacOS/Blender --background --python turnaround.py -- --frame 25
 ```
 
-Final output is saved to `turnaround_output/turnaround.mp4`. Preview output is saved to `turnaround_output/turnaround_preview.mp4`.
+Default preview output is saved to `turnaround_output/turnaround_preview.mp4`.
+Final output is saved to `turnaround_output/turnaround.mp4`.
 Single-frame preview output is saved to `turnaround_output/turnaround_preview_frame_####.png`.
 
 ## License
