@@ -1,6 +1,8 @@
 """
 Generate a 360-degree turnaround video of the Mac Studio enclosure.
 
+The enclosure geometry and Mac Studio placement settings come from main.py.
+
 Usage:
   /Applications/Blender.app/Contents/MacOS/Blender --background --python turnaround.py
   /Applications/Blender.app/Contents/MacOS/Blender --background --python turnaround.py -- --final
@@ -8,30 +10,41 @@ Usage:
   /Applications/Blender.app/Contents/MacOS/Blender --background --python turnaround.py -- --include-mac-studio
 """
 
+from __future__ import annotations
+
 import argparse
-import bpy
 import math
-import os
+import subprocess
 import sys
+from pathlib import Path
+
+import bpy
 from mathutils import Vector
 
-# ---------------------------------------------------------------------------
-# Configuration
-# ---------------------------------------------------------------------------
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-MODEL_PATH = os.path.join(SCRIPT_DIR, "mac_studio_enclosure.stl")
-MAC_STUDIO_PATH = os.path.join(SCRIPT_DIR, "mac-studio.usdz")
-OUTPUT_DIR = os.path.join(SCRIPT_DIR, "turnaround_output")
 
-ENCLOSURE_WALL_THICKNESS = 0.004
-SIDE_CLEARANCE = 0.0055
-TOP_BOTTOM_CLEARANCE = 0.0025
-MAC_STUDIO_TARGET_DIMS = Vector((0.196726, 0.197478, 0.095133))
-# Lock the USDZ asset to an explicit orientation so asymmetric enclosure features
-# stay on the intended rendered side. This preserves the current "front ports to
-# the opening, top surface upright" presentation without relying on ambiguous
-# bounding-box fitting across a nearly square footprint.
-MAC_STUDIO_ASSET_ROTATION_DEG = (90, 0, 180)
+SCRIPT_DIR = Path(__file__).resolve().parent
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
+
+import main as build_main
+
+
+PROJECT_CONTEXT = build_main.ProjectContext()
+ASSEMBLY_PLACEMENT = build_main.reference_assembly_placement(PROJECT_CONTEXT)
+
+MODEL_PATH = build_main.DEFAULT_STL_PATH
+MAC_STUDIO_PATH = build_main.DEFAULT_MAC_STUDIO_USDZ_PATH
+OUTPUT_DIR = SCRIPT_DIR / "turnaround_output"
+
+MODEL_SCALE_METERS = 0.001
+TURNAROUND_DISPLAY_ROTATION_DEG = (180, 0, 0)
+MAC_STUDIO_TARGET_DIMS_M = Vector(
+    tuple(value * MODEL_SCALE_METERS for value in ASSEMBLY_PLACEMENT.target_dims_mm)
+)
+BODY_CENTER_VERTICAL_OFFSET_M = (
+    ASSEMBLY_PLACEMENT.body_center_vertical_offset_mm * MODEL_SCALE_METERS
+)
+MAC_STUDIO_CANDIDATE_ROTATIONS_DEG = ASSEMBLY_PLACEMENT.candidate_rotations_deg
 
 RENDER_PRESETS = {
     "final": {
@@ -52,39 +65,26 @@ RENDER_PRESETS = {
     },
 }
 
-# Camera orbit settings
-CAMERA_ELEVATION_DEG = 25  # Angle above the horizon
-CAMERA_DISTANCE_FACTOR = 6.0  # Multiplier on model bounding radius
+CAMERA_ELEVATION_DEG = 25
+CAMERA_DISTANCE_FACTOR = 6.0
 DEFAULT_STILL_FRAME = 25
 ORTHO_FRONT_MARGIN = 1.15
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
 
 def clear_scene():
-    """Remove all default objects."""
+    """Remove all objects and orphaned scene data."""
     bpy.ops.object.select_all(action="SELECT")
     bpy.ops.object.delete()
-    # Remove orphan data
-    for block in bpy.data.meshes:
-        if block.users == 0:
-            bpy.data.meshes.remove(block)
-    for block in bpy.data.materials:
-        if block.users == 0:
-            bpy.data.materials.remove(block)
-    for block in bpy.data.cameras:
-        if block.users == 0:
-            bpy.data.cameras.remove(block)
-    for block in bpy.data.lights:
-        if block.users == 0:
-            bpy.data.lights.remove(block)
+
+    for collection in (bpy.data.meshes, bpy.data.materials, bpy.data.cameras, bpy.data.lights):
+        for block in list(collection):
+            if block.users == 0:
+                collection.remove(block)
 
 
 def parse_args():
     """Parse script arguments passed after Blender's `--` separator."""
-    argv = sys.argv
-    script_argv = argv[argv.index("--") + 1:] if "--" in argv else []
+    script_argv = sys.argv[sys.argv.index("--") + 1 :] if "--" in sys.argv else []
 
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -118,24 +118,6 @@ def parse_args():
     return args
 
 
-def import_model(filepath):
-    """Import the STL model and return the imported object."""
-    bpy.ops.wm.stl_import(filepath=filepath)
-    obj = bpy.context.selected_objects[0]
-    # STL is in millimeters — scale to meters
-    obj.scale = (0.001, 0.001, 0.001)
-    bpy.ops.object.transform_apply(scale=True)
-    # STL is stored in print orientation; rotate into the normal
-    # upright Mac Studio orientation for the turnaround render.
-    import math as _math
-    obj.rotation_euler = (_math.radians(180), 0, 0)
-    bpy.ops.object.transform_apply(rotation=True)
-    # Center the object at the origin
-    bpy.ops.object.origin_set(type="ORIGIN_GEOMETRY", center="BOUNDS")
-    obj.location = (0, 0, 0)
-    return obj
-
-
 def get_mesh_objects(objects):
     """Return only mesh objects from an iterable."""
     return [obj for obj in objects if obj.type == "MESH"]
@@ -145,7 +127,7 @@ def get_world_vertices(objects):
     """Return all world-space vertices for the given mesh objects."""
     verts = []
     for obj in get_mesh_objects(objects):
-        verts.extend(obj.matrix_world @ v.co for v in obj.data.vertices)
+        verts.extend(obj.matrix_world @ vertex.co for vertex in obj.data.vertices)
     return verts
 
 
@@ -167,36 +149,99 @@ def get_bounding_radius(objects):
     """Return the radius of the bounding sphere of the mesh objects."""
     verts = get_world_vertices(objects)
     center = sum(verts, Vector()) / len(verts)
-    return max((v - center).length for v in verts)
+    return max((vertex - center).length for vertex in verts)
 
 
-def parent_objects_to_empty(objects, name):
-    """Parent imported objects to a single empty while preserving transforms."""
-    center = get_bbox_center(objects)
+def select_mesh_objects(objects):
+    """Select the mesh objects and make the first one active."""
+    bpy.ops.object.select_all(action="DESELECT")
+    meshes = get_mesh_objects(objects)
+    if not meshes:
+        raise RuntimeError("Expected at least one mesh object to select.")
+    for obj in meshes:
+        obj.select_set(True)
+    bpy.context.view_layer.objects.active = meshes[0]
+
+
+def parent_objects_to_empty(objects, name, recenter=False):
+    """Parent objects to a single empty, optionally recentering them around origin."""
     root = bpy.data.objects.new(name, None)
+    if recenter:
+        root.location = get_bbox_center(objects)
     bpy.context.collection.objects.link(root)
-    root.location = center
     for obj in objects:
         obj.parent = root
         obj.matrix_parent_inverse = root.matrix_world.inverted()
-    root.location = (0, 0, 0)
+    if recenter:
+        root.location = (0, 0, 0)
     bpy.context.view_layer.update()
     return root
 
 
-def orient_mac_studio_asset(root, mac_objects):
-    """Apply a deterministic USDZ orientation and return the fitted uniform scale."""
-    root.rotation_euler = tuple(math.radians(v) for v in MAC_STUDIO_ASSET_ROTATION_DEG)
+def shade_auto_smooth(objects):
+    """Enable Blender's auto-smooth shading on the selected meshes."""
+    select_mesh_objects(objects)
+    bpy.ops.object.shade_auto_smooth()
+
+
+def import_enclosure(filepath):
+    """Import the generated enclosure STL in print orientation, scaled to meters."""
+    existing = set(bpy.data.objects)
+    bpy.ops.wm.stl_import(filepath=str(filepath))
+    imported = [obj for obj in bpy.data.objects if obj not in existing]
+    meshes = get_mesh_objects(imported)
+    if not meshes:
+        raise RuntimeError("STL import did not create any mesh objects.")
+
+    for obj in meshes:
+        obj.scale = (MODEL_SCALE_METERS, MODEL_SCALE_METERS, MODEL_SCALE_METERS)
     bpy.context.view_layer.update()
 
-    mins, maxs = get_world_bbox(mac_objects)
-    dims = maxs - mins
-    scale = MAC_STUDIO_TARGET_DIMS.dot(dims) / max(dims.dot(dims), 1e-12)
-    return scale
+    root = parent_objects_to_empty(meshes, "EnclosurePrintRoot", recenter=True)
+    return root, meshes
 
 
-def create_mac_material():
-    """Create a simple aluminum-like material for the Mac Studio."""
+def create_display_root(objects):
+    """Create a display root that rotates the print-oriented assembly upright."""
+    root = bpy.data.objects.new("TurnaroundAssemblyRoot", None)
+    bpy.context.collection.objects.link(root)
+    for obj in objects:
+        obj.parent = root
+        obj.matrix_parent_inverse = root.matrix_world.inverted()
+    root.rotation_euler = tuple(math.radians(value) for value in TURNAROUND_DISPLAY_ROTATION_DEG)
+    bpy.context.view_layer.update()
+    return root
+
+
+def fit_mac_studio_asset(root, mac_objects):
+    """Find the authoritative asset orientation and return the uniform fit scale."""
+    best_rotation = None
+    best_fit_scale = None
+    best_error = None
+
+    for rotation_deg in MAC_STUDIO_CANDIDATE_ROTATIONS_DEG:
+        root.rotation_euler = tuple(math.radians(value) for value in rotation_deg)
+        root.scale = (1.0, 1.0, 1.0)
+        bpy.context.view_layer.update()
+
+        mins, maxs = get_world_bbox(mac_objects)
+        dims = maxs - mins
+        fit_scale = MAC_STUDIO_TARGET_DIMS_M.dot(dims) / max(dims.dot(dims), 1e-12)
+        residual = MAC_STUDIO_TARGET_DIMS_M - (dims * fit_scale)
+        error = residual.length
+
+        if best_error is None or error < best_error:
+            best_rotation = rotation_deg
+            best_fit_scale = fit_scale
+            best_error = error
+
+    root.rotation_euler = tuple(math.radians(value) for value in best_rotation)
+    root.scale = (best_fit_scale, best_fit_scale, best_fit_scale)
+    bpy.context.view_layer.update()
+
+
+def create_fallback_mac_material():
+    """Create a simple aluminum-like material if the USDZ import lacks materials."""
     mat = bpy.data.materials.new(name="Mac_Studio_Material")
     mat.use_nodes = True
     nodes = mat.node_tree.nodes
@@ -208,6 +253,10 @@ def create_mac_material():
     bsdf.inputs["Base Color"].default_value = (0.72, 0.74, 0.77, 1.0)
     bsdf.inputs["Metallic"].default_value = 0.15
     bsdf.inputs["Roughness"].default_value = 0.28
+    if "Specular IOR Level" in bsdf.inputs:
+        bsdf.inputs["Specular IOR Level"].default_value = 0.5
+    elif "Specular" in bsdf.inputs:
+        bsdf.inputs["Specular"].default_value = 0.5
 
     output = nodes.new("ShaderNodeOutputMaterial")
     output.location = (300, 0)
@@ -215,41 +264,41 @@ def create_mac_material():
     return mat
 
 
-def import_mac_studio(filepath, enclosure_obj):
-    """Import, orient, scale, and position the Mac Studio and enclosure together."""
-    existing_objects = set(bpy.data.objects)
-    bpy.ops.wm.usd_import(filepath=filepath)
-    imported = [obj for obj in bpy.data.objects if obj not in existing_objects]
+def imported_mac_has_materials(mac_objects):
+    """Return True when the imported USDZ already provides usable materials."""
+    return any(
+        slot.material is not None
+        for obj in mac_objects
+        for slot in obj.material_slots
+    )
+
+
+def import_mac_studio(filepath, enclosure_meshes):
+    """Import, orient, scale, and position the Mac Studio in print orientation."""
+    existing = set(bpy.data.objects)
+    bpy.ops.wm.usd_import(filepath=str(filepath))
+    imported = [obj for obj in bpy.data.objects if obj not in existing]
     mac_objects = get_mesh_objects(imported)
     if not mac_objects:
         raise RuntimeError("USD import did not create any mesh objects.")
 
-    root = parent_objects_to_empty(mac_objects, "MacStudioRoot")
-    scale = orient_mac_studio_asset(root, mac_objects)
-    root.scale = (scale, scale, scale)
+    root = parent_objects_to_empty(mac_objects, "MacStudioPrintRoot", recenter=True)
+    fit_mac_studio_asset(root, mac_objects)
+
+    enclosure_center = get_bbox_center(enclosure_meshes)
+    mac_center = get_bbox_center(mac_objects)
+    root.location += enclosure_center - mac_center
+    root.location.z += BODY_CENTER_VERTICAL_OFFSET_M
     bpy.context.view_layer.update()
 
-    enclosure_mins, enclosure_maxs = get_world_bbox([enclosure_obj])
-    mac_mins, mac_maxs = get_world_bbox(mac_objects)
-    mac_dims = mac_maxs - mac_mins
-    enclosure_center = (enclosure_mins + enclosure_maxs) / 2.0
-    front_face_y = enclosure_maxs.y
-    mac_center_y = front_face_y - (ENCLOSURE_WALL_THICKNESS + SIDE_CLEARANCE + mac_dims.y / 2.0)
+    used_imported_materials = imported_mac_has_materials(mac_objects)
+    if not used_imported_materials:
+        mac_material = create_fallback_mac_material()
+        for obj in mac_objects:
+            obj.data.materials.clear()
+            obj.data.materials.append(mac_material)
 
-    root.location = (enclosure_center.x, mac_center_y, -mac_mins.z)
-    bpy.context.view_layer.update()
-
-    enclosure_mins, enclosure_maxs = get_world_bbox([enclosure_obj])
-    desired_enclosure_min_z = TOP_BOTTOM_CLEARANCE
-    enclosure_obj.location.z += desired_enclosure_min_z - enclosure_mins.z
-    bpy.context.view_layer.update()
-
-    mac_material = create_mac_material()
-    for obj in mac_objects:
-        obj.data.materials.clear()
-        obj.data.materials.append(mac_material)
-
-    return root, mac_objects
+    return root, mac_objects, used_imported_materials
 
 
 def create_material():
@@ -258,28 +307,25 @@ def create_material():
     mat.use_nodes = True
     nodes = mat.node_tree.nodes
     links = mat.node_tree.links
-
-    # Clear defaults
     nodes.clear()
 
-    # Principled BSDF
     bsdf = nodes.new("ShaderNodeBsdfPrincipled")
     bsdf.location = (0, 0)
-    bsdf.inputs["Base Color"].default_value = (0.85, 0.85, 0.85, 1.0)  # Light grey
+    bsdf.inputs["Base Color"].default_value = (0.85, 0.85, 0.85, 1.0)
     bsdf.inputs["Roughness"].default_value = 0.35
-    bsdf.inputs["Specular IOR Level"].default_value = 0.5
+    if "Specular IOR Level" in bsdf.inputs:
+        bsdf.inputs["Specular IOR Level"].default_value = 0.5
+    elif "Specular" in bsdf.inputs:
+        bsdf.inputs["Specular"].default_value = 0.5
 
-    # Output
     output = nodes.new("ShaderNodeOutputMaterial")
     output.location = (300, 0)
     links.new(bsdf.outputs["BSDF"], output.inputs["Surface"])
-
     return mat
 
 
 def setup_lighting(target_obj=None, orthographic_front=False):
     """Three-point lighting with an optional front fill for orthographic renders."""
-    # Key light — area light, upper-right
     key_data = bpy.data.lights.new(name="Key", type="AREA")
     key_data.energy = 200
     key_data.size = 2.0
@@ -289,7 +335,6 @@ def setup_lighting(target_obj=None, orthographic_front=False):
     key_obj.location = (2.0, -2.0, 3.0)
     key_obj.rotation_euler = (math.radians(45), 0, math.radians(45))
 
-    # Fill light — softer, opposite side
     fill_data = bpy.data.lights.new(name="Fill", type="AREA")
     fill_data.energy = 80
     fill_data.size = 3.0
@@ -299,7 +344,6 @@ def setup_lighting(target_obj=None, orthographic_front=False):
     fill_obj.location = (-2.5, -1.0, 2.0)
     fill_obj.rotation_euler = (math.radians(50), 0, math.radians(-60))
 
-    # Rim / back light
     rim_data = bpy.data.lights.new(name="Rim", type="AREA")
     rim_data.energy = 120
     rim_data.size = 1.5
@@ -308,13 +352,12 @@ def setup_lighting(target_obj=None, orthographic_front=False):
     rim_obj.location = (0.5, 3.0, 2.5)
     rim_obj.rotation_euler = (math.radians(-45), 0, math.radians(180))
 
-    # Subtle world environment for ambient fill
     world = bpy.data.worlds.new("TurnaroundWorld")
     bpy.context.scene.world = world
     world.use_nodes = True
-    bg = world.node_tree.nodes["Background"]
-    bg.inputs["Color"].default_value = (0.05, 0.05, 0.06, 1.0)
-    bg.inputs["Strength"].default_value = 0.3
+    background = world.node_tree.nodes["Background"]
+    background.inputs["Color"].default_value = (0.05, 0.05, 0.06, 1.0)
+    background.inputs["Strength"].default_value = 0.3
 
     if orthographic_front:
         front_data = bpy.data.lights.new(name="FrontFill", type="AREA")
@@ -357,51 +400,44 @@ def setup_camera(target_obj, render_objects, bounding_radius, total_frames, orth
         bpy.context.scene.camera = cam_obj
         return cam_obj
 
-    # Default turnaround camera: perspective camera parented to a rotating pivot.
     elevation = math.radians(CAMERA_ELEVATION_DEG)
     distance = bounding_radius * CAMERA_DISTANCE_FACTOR
 
-    # Camera
     cam_data = bpy.data.cameras.new("TurnaroundCamera")
-    cam_data.lens = 80  # Slightly telephoto to reduce distortion
+    cam_data.lens = 80
     cam_data.clip_start = 0.01
     cam_data.clip_end = 100.0
     cam_obj = bpy.data.objects.new("TurnaroundCamera", cam_data)
     bpy.context.collection.objects.link(cam_obj)
 
-    # Position camera
-    cam_x = distance * math.cos(elevation)
-    cam_z = distance * math.sin(elevation)
-    cam_obj.location = (cam_x, 0, cam_z)
-
-    # Track-To constraint keeps camera pointed at center
     track = cam_obj.constraints.new(type="TRACK_TO")
     track.target = target_obj
     track.track_axis = "TRACK_NEGATIVE_Z"
     track.up_axis = "UP_Y"
 
-    # Empty at origin — camera orbits around this
     pivot = bpy.data.objects.new("CameraPivot", None)
-    pivot.location = (0, 0, 0)
+    pivot.location = target_obj.location.copy()
     bpy.context.collection.objects.link(pivot)
-
     cam_obj.parent = pivot
+    cam_obj.matrix_parent_inverse = pivot.matrix_world.inverted()
 
-    # Animate pivot rotation: 0 → 360 degrees over the timeline
+    cam_x = distance * math.cos(elevation)
+    cam_z = distance * math.sin(elevation)
+    cam_obj.location = (cam_x, 0, cam_z)
+
     pivot.rotation_euler = (0, 0, 0)
     pivot.keyframe_insert(data_path="rotation_euler", frame=1)
     pivot.rotation_euler = (0, 0, math.radians(360))
     pivot.keyframe_insert(data_path="rotation_euler", frame=total_frames + 1)
 
-    # Linear interpolation so speed is constant (Blender 5 layered action API)
     if pivot.animation_data and pivot.animation_data.action:
         action = pivot.animation_data.action
         for layer in action.layers:
             for strip in layer.strips:
                 for channelbag in strip.channelbags:
                     for fcurve in channelbag.fcurves:
-                        for kf in fcurve.keyframe_points:
-                            kf.interpolation = "LINEAR"
+                        for keyframe in fcurve.keyframe_points:
+                            keyframe.interpolation = "LINEAR"
 
     bpy.context.scene.camera = cam_obj
     return cam_obj
@@ -419,46 +455,33 @@ def setup_render(settings):
     scene.render.resolution_y = settings["resolution_y"]
     scene.render.resolution_percentage = 100
 
-    # Use EEVEE
     scene.render.engine = "BLENDER_EEVEE"
-    eevee = scene.eevee
-    eevee.taa_render_samples = settings["samples"]
-    print("Render engine: EEVEE")
+    scene.eevee.taa_render_samples = settings["samples"]
 
-    # Render to PNG frames (ffmpeg encodes to MP4 after)
     scene.render.image_settings.file_format = "PNG"
     scene.render.image_settings.color_mode = "RGB"
     scene.render.image_settings.compression = 15
 
-    os.makedirs(OUTPUT_DIR, exist_ok=True)
-    scene.render.filepath = os.path.join(OUTPUT_DIR, "frame_")
-
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    scene.render.filepath = str(OUTPUT_DIR / "frame_")
     scene.render.film_transparent = False
     return total_frames
 
 
 def still_output_path(render_mode, frame_number):
     """Return the output path for a single rendered frame."""
-    return os.path.join(
-        OUTPUT_DIR,
-        f"turnaround_{render_mode}_frame_{frame_number:04d}.png",
-    )
+    return OUTPUT_DIR / f"turnaround_{render_mode}_frame_{frame_number:04d}.png"
 
 
 def add_ground_plane(render_objects):
-    """Add a subtle ground shadow-catcher plane."""
+    """Add a subtle ground plane beneath the assembly."""
     bpy.ops.mesh.primitive_plane_add(size=20, location=(0, 0, 0))
     plane = bpy.context.active_object
     plane.name = "GroundPlane"
 
-    # Find the lowest point of any mesh object to position the plane
-    min_z = 0
-    for world_co in get_world_vertices(render_objects):
-        min_z = min(min_z, world_co.z)
-
+    min_z = min(world_co.z for world_co in get_world_vertices(render_objects))
     plane.location.z = min_z
 
-    # Shadow catcher material — dark surface that catches shadows
     mat = bpy.data.materials.new(name="Ground_Material")
     mat.use_nodes = True
     nodes = mat.node_tree.nodes
@@ -468,7 +491,10 @@ def add_ground_plane(render_objects):
     bsdf = nodes.new("ShaderNodeBsdfPrincipled")
     bsdf.inputs["Base Color"].default_value = (0.02, 0.02, 0.025, 1.0)
     bsdf.inputs["Roughness"].default_value = 0.8
-    bsdf.inputs["Specular IOR Level"].default_value = 0.1
+    if "Specular IOR Level" in bsdf.inputs:
+        bsdf.inputs["Specular IOR Level"].default_value = 0.1
+    elif "Specular" in bsdf.inputs:
+        bsdf.inputs["Specular"].default_value = 0.1
 
     output = nodes.new("ShaderNodeOutputMaterial")
     output.location = (300, 0)
@@ -478,52 +504,56 @@ def add_ground_plane(render_objects):
     return plane
 
 
-# ---------------------------------------------------------------------------
-# Main
-# ---------------------------------------------------------------------------
-
 def main():
     args = parse_args()
     render_mode = args.render_mode
     render_settings = RENDER_PRESETS[render_mode]
 
-    if not os.path.isfile(MODEL_PATH):
+    if not MODEL_PATH.is_file():
         print(f"ERROR: Model not found at {MODEL_PATH}")
         sys.exit(1)
-    if args.include_mac_studio and not os.path.isfile(MAC_STUDIO_PATH):
+    if args.include_mac_studio and not MAC_STUDIO_PATH.is_file():
         print(f"ERROR: Mac Studio model not found at {MAC_STUDIO_PATH}")
         sys.exit(1)
 
     print(f"Render preset: {render_mode}")
-    print(f"Importing model from {MODEL_PATH}")
+    print(f"Importing enclosure from {MODEL_PATH}")
     clear_scene()
 
-    # Import
-    obj = import_model(MODEL_PATH)
-    print(f"Imported: {obj.name}  —  {len(obj.data.vertices)} verts")
-    render_objects = [obj]
+    enclosure_root, enclosure_meshes = import_enclosure(MODEL_PATH)
+    shade_auto_smooth(enclosure_meshes)
+    enclosure_material = create_material()
+    for obj in enclosure_meshes:
+        obj.data.materials.clear()
+        obj.data.materials.append(enclosure_material)
+    print(f"Imported enclosure — {sum(len(obj.data.vertices) for obj in enclosure_meshes)} verts")
 
-    # Auto-smooth by angle — only smooths faces within 30 degrees of each other,
-    # keeping hard edges sharp and eliminating vertex-shadow artifacts
-    bpy.ops.object.shade_auto_smooth()
-
-    # Apply material
-    mat = create_material()
-    obj.data.materials.clear()
-    obj.data.materials.append(mat)
+    render_objects = list(enclosure_meshes)
+    display_children = [enclosure_root]
 
     if args.include_mac_studio:
-        print(f"Importing Mac Studio from {MAC_STUDIO_PATH}")
-        _, mac_objects = import_mac_studio(MAC_STUDIO_PATH, obj)
-        render_objects.extend(mac_objects)
-        print(f"Imported Mac Studio — {len(mac_objects)} mesh objects")
+        print(
+            "Importing Mac Studio from "
+            f"{MAC_STUDIO_PATH} using placement from main.py"
+        )
+        mac_root, mac_meshes, used_imported_materials = import_mac_studio(
+            MAC_STUDIO_PATH,
+            enclosure_meshes,
+        )
+        display_children.append(mac_root)
+        render_objects.extend(mac_meshes)
+        print(f"Imported Mac Studio — {len(mac_meshes)} mesh objects")
+        if used_imported_materials:
+            print("Using the real USDZ materials and textures for the Mac Studio.")
+        else:
+            print("USDZ import did not provide materials; using the fallback Mac shader.")
 
-    # Create an empty at the assembly center for tracking
+    create_display_root(display_children)
+
     target = bpy.data.objects.new("CameraTarget", None)
     target.location = get_bbox_center(render_objects)
     bpy.context.collection.objects.link(target)
 
-    # Setup scene
     radius = get_bounding_radius(render_objects)
     print(f"Bounding radius: {radius:.3f} m")
 
@@ -551,7 +581,7 @@ def main():
         scene = bpy.context.scene
         scene.frame_set(frame_number)
         still_path = still_output_path(render_mode, frame_number)
-        scene.render.filepath = still_path
+        scene.render.filepath = str(still_path)
 
         print(
             f"Rendering still frame {frame_number}/{total_frames} at "
@@ -562,7 +592,6 @@ def main():
         print(f"Done! Output saved to: {still_path}")
         return
 
-    # Render frames
     print(
         "Rendering "
         f"{total_frames} frames at "
@@ -571,28 +600,32 @@ def main():
     )
     bpy.ops.render.render(animation=True)
 
-    # Encode to MP4 with ffmpeg
-    import subprocess
-    frame_pattern = os.path.join(OUTPUT_DIR, "frame_%04d.png")
-    mp4_path = os.path.join(OUTPUT_DIR, render_settings["output_name"])
+    frame_pattern = str(OUTPUT_DIR / "frame_%04d.png")
+    mp4_path = OUTPUT_DIR / render_settings["output_name"]
     cmd = [
-        "ffmpeg", "-y",
-        "-framerate", str(render_settings["fps"]),
-        "-start_number", "1",
-        "-i", frame_pattern,
-        "-c:v", "libx264",
-        "-crf", "18",
-        "-pix_fmt", "yuv420p",
-        "-movflags", "+faststart",
-        mp4_path,
+        "ffmpeg",
+        "-y",
+        "-framerate",
+        str(render_settings["fps"]),
+        "-start_number",
+        "1",
+        "-i",
+        frame_pattern,
+        "-c:v",
+        "libx264",
+        "-crf",
+        "18",
+        "-pix_fmt",
+        "yuv420p",
+        "-movflags",
+        "+faststart",
+        str(mp4_path),
     ]
     print(f"Encoding MP4: {' '.join(cmd)}")
     subprocess.run(cmd, check=True)
 
-    # Clean up PNG frames
-    for f in os.listdir(OUTPUT_DIR):
-        if f.startswith("frame_") and f.endswith(".png"):
-            os.remove(os.path.join(OUTPUT_DIR, f))
+    for frame_path in OUTPUT_DIR.glob("frame_*.png"):
+        frame_path.unlink()
 
     print(f"Done! Output saved to: {mp4_path}")
 

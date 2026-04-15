@@ -106,6 +106,45 @@ class VisualizationSettings:
         return (self.glass_color_r, self.glass_color_g, self.glass_color_b)
 
 
+REFERENCE_MAC_STUDIO_ASSET_PREFERRED_ROTATION_DEG = (270, 0, 180)
+REFERENCE_MAC_STUDIO_ASSET_CANDIDATE_ROTATIONS_DEG = (
+    REFERENCE_MAC_STUDIO_ASSET_PREFERRED_ROTATION_DEG,
+    (0, 0, 0),
+    (0, 0, 90),
+    (0, 0, 180),
+    (0, 0, 270),
+    (90, 0, 0),
+    (90, 0, 90),
+    (90, 0, 180),
+    (90, 0, 270),
+    (180, 0, 0),
+    (180, 0, 90),
+    (180, 0, 180),
+    (180, 0, 270),
+    (270, 0, 0),
+    (270, 0, 90),
+    (270, 0, 270),
+    (0, 90, 0),
+    (0, 90, 90),
+    (0, 90, 180),
+    (0, 90, 270),
+    (0, 270, 0),
+    (0, 270, 90),
+    (0, 270, 180),
+    (0, 270, 270),
+)
+
+
+@dataclass(frozen=True)
+class ReferenceAssemblyPlacement:
+    """Shared placement settings for enclosure + Mac Studio reference assemblies."""
+
+    target_dims_mm: tuple[float, float, float]
+    body_center_vertical_offset_mm: float
+    preferred_rotation_deg: tuple[int, int, int]
+    candidate_rotations_deg: tuple[tuple[int, int, int], ...]
+
+
 @dataclass(frozen=True)
 class Geometry:
     """Derived enclosure geometry computed from the authoritative inputs."""
@@ -268,6 +307,21 @@ class ProjectContext:
         geometry = Geometry(self.inputs)
         geometry.validate()
         return geometry
+
+
+def reference_assembly_placement(context: ProjectContext) -> ReferenceAssemblyPlacement:
+    """Return the authoritative Mac Studio placement settings for Blender workflows."""
+    geometry = context.geometry
+    return ReferenceAssemblyPlacement(
+        target_dims_mm=(
+            geometry.inputs.body_w,
+            geometry.inputs.body_w,
+            geometry.inputs.body_h,
+        ),
+        body_center_vertical_offset_mm=geometry.inputs.base_protrusion / 2.0,
+        preferred_rotation_deg=REFERENCE_MAC_STUDIO_ASSET_PREFERRED_ROTATION_DEG,
+        candidate_rotations_deg=REFERENCE_MAC_STUDIO_ASSET_CANDIDATE_ROTATIONS_DEG,
+    )
 
 
 def format_number(value: float, digits: int = 3) -> str:
@@ -864,24 +918,23 @@ def build_blender_assembly_script(
     mac_studio_usdz_path: Path,
     export_block: str,
 ) -> str:
-    geometry = context.geometry
-    target_dims_mm = (
-        geometry.inputs.body_w,
-        geometry.inputs.body_w,
-        geometry.inputs.body_h,
-    )
-    body_center_vertical_offset_mm = geometry.inputs.base_protrusion / 2.0
+    placement = reference_assembly_placement(context)
     visualization = context.visualization
 
     script = BLENDER_ASSEMBLY_TEMPLATE.format(
         enclosure_stl_path=str(enclosure_stl_path),
         mac_studio_usdz_path=str(mac_studio_usdz_path),
-        target_dims_mm=", ".join(f"{value:.6f}" for value in target_dims_mm),
-        body_center_vertical_offset_mm=f"{body_center_vertical_offset_mm:.6f}",
+        target_dims_mm=", ".join(f"{value:.6f}" for value in placement.target_dims_mm),
+        body_center_vertical_offset_mm=f"{placement.body_center_vertical_offset_mm:.6f}",
         context_signature=reference_assembly_context_signature(context),
         glass_color=", ".join(f"{value:.6f}" for value in visualization.glass_color),
         glass_roughness=f"{visualization.glass_roughness:.6f}",
         glass_ior=f"{visualization.glass_ior:.6f}",
+        preferred_rotation_deg=", ".join(str(value) for value in placement.preferred_rotation_deg),
+        fallback_candidate_rotations_deg=",\n    ".join(
+            f"({', '.join(str(value) for value in rotation_deg)})"
+            for rotation_deg in placement.candidate_rotations_deg[1:]
+        ),
     )
     return script.replace("__EXPORT_BLOCK__", export_block)
 
@@ -1315,32 +1368,10 @@ CONTEXT_SIGNATURE = "{context_signature}"
 GLASS_COLOR = ({glass_color})
 GLASS_ROUGHNESS = {glass_roughness}
 GLASS_IOR = {glass_ior}
-PREFERRED_ROTATION_DEG = (270, 0, 180)
+PREFERRED_ROTATION_DEG = ({preferred_rotation_deg})
 CANDIDATE_ROTATIONS_DEG = [
     PREFERRED_ROTATION_DEG,
-    (0, 0, 0),
-    (0, 0, 90),
-    (0, 0, 180),
-    (0, 0, 270),
-    (90, 0, 0),
-    (90, 0, 90),
-    (90, 0, 180),
-    (90, 0, 270),
-    (180, 0, 0),
-    (180, 0, 90),
-    (180, 0, 180),
-    (180, 0, 270),
-    (270, 0, 0),
-    (270, 0, 90),
-    (270, 0, 270),
-    (0, 90, 0),
-    (0, 90, 90),
-    (0, 90, 180),
-    (0, 90, 270),
-    (0, 270, 0),
-    (0, 270, 90),
-    (0, 270, 180),
-    (0, 270, 270),
+    {fallback_candidate_rotations_deg},
 ]
 
 
